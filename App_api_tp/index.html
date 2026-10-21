@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f3f5f8" />
+    <title>Facturas de Venta</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./dist/src/app.js"></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section id="list-view" aria-labelledby="list-title">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Administración comercial</p>
+            <h1 id="list-title">Facturas de Venta</h1>
+          </div>
+          <button id="new-invoice" class="button button-primary" type="button">Nueva Factura</button>
+        </header>
+
+        <div id="api-notice" class="notice notice-warning" role="status">
+          El backend no ofrece consultas para cargar clientes, productos, puntos de venta, condiciones IVA o monedas. Introduce los identificadores requeridos manualmente.
+        </div>
+        <div id="action-notice" class="notice notice-info" role="status">
+          El DELETE del backend realiza una anulación lógica (marca la factura como ANULADA), no una eliminación física. No se habilita aquí porque el GET no incluye el ID interno necesario; tampoco existe una ruta para cambiar únicamente el estado.
+        </div>
+
+        <section class="panel filter-panel" aria-labelledby="filters-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="filters-title">Filtros</h2>
+              <p>Acota la búsqueda de facturas</p>
+            </div>
+          </div>
+          <form id="filters-form" class="filter-grid">
+            <label class="field">
+              <span>Número de factura</span>
+              <input name="numeroFactura" type="number" min="1" step="1" placeholder="Ej.: 1001" />
+            </label>
+            <label class="field">
+              <span>Cliente</span>
+              <input name="clienteDenominacion" type="search" placeholder="Nombre del cliente" />
+            </label>
+            <label class="field">
+              <span>Condición IVA</span>
+              <input name="condicionIva" type="search" placeholder="Ej.: Monotributo" />
+            </label>
+            <label class="field">
+              <span>Fecha desde</span>
+              <input name="fechaDesde" type="date" />
+            </label>
+            <label class="field">
+              <span>Fecha hasta</span>
+              <input name="fechaHasta" type="date" />
+            </label>
+            <div class="filter-actions">
+              <button class="button button-primary" type="submit">Buscar</button>
+              <button id="clear-filters" class="button button-secondary" type="button">Limpiar</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel table-panel" aria-labelledby="results-title">
+          <div class="table-heading">
+            <div>
+              <h2 id="results-title">Resultados</h2>
+              <p id="results-count" class="muted">—</p>
+            </div>
+            <button id="retry-list" class="button button-secondary button-small" type="button" hidden>Reintentar</button>
+          </div>
+          <div class="table-scroll">
+            <table class="invoice-table">
+              <thead>
+                <tr>
+                  <th>Número</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Condición IVA</th>
+                  <th>Punto de Venta</th>
+                  <th class="numeric">Importe Total</th>
+                  <th class="numeric">Ítems</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="invoice-rows">
+                <tr><td class="table-message" colspan="8">Cargando facturas…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="form-view" aria-labelledby="form-title" hidden>
+        <header class="page-header form-page-header">
+          <div>
+            <p class="eyebrow">Gestión de ventas</p>
+            <h1 id="form-title">Nueva Factura de Venta</h1>
+          </div>
+          <button id="back-to-list" class="button button-secondary" type="button">Volver al listado</button>
+        </header>
+
+        <form id="invoice-form" novalidate>
+          <section class="panel form-panel" aria-labelledby="header-title">
+            <div class="panel-heading"><div><h2 id="header-title">Datos de la Factura</h2></div></div>
+            <div class="form-grid">
+              <label class="field">
+                <span>Número de Factura <b class="required-mark">*</b></span>
+                <input name="numero" type="number" min="1" step="1" required />
+                <small>El contrato actual requiere indicar el número. No hay generación automática en el backend.</small>
+              </label>
+              <label class="field">
+                <span>Fecha de Emisión <b class="required-mark">*</b></span>
+                <input name="fechaEmision" type="date" required />
+              </label>
+              <label class="field">
+                <span>ID Punto de Venta <b class="required-mark">*</b></span>
+                <input name="puntoVentaId" type="number" min="1" step="1" required placeholder="ID" />
+              </label>
+              <label class="field">
+                <span>ID Cliente <b class="required-mark">*</b></span>
+                <input name="clienteId" type="number" min="1" step="1" required placeholder="ID" />
+              </label>
+              <label class="field">
+                <span>ID Condición IVA <b class="required-mark">*</b></span>
+                <input name="condicionIvaId" type="number" min="1" step="1" required placeholder="ID" />
+              </label>
+              <label class="field">
+                <span>ID Moneda <b class="required-mark">*</b></span>
+                <input name="tipoMonedaId" type="number" min="1" step="1" required placeholder="ID" />
+              </label>
+              <label class="field">
+                <span>Importe cobrado</span>
+                <input name="importeCobrado" type="number" min="0" step="0.01" value="0" />
+              </label>
+            </div>
+            <p class="helper-note">Los campos identificados como ID corresponden a claves del backend; las rutas actuales no permiten consultar sus nombres.</p>
+          </section>
+
+          <section class="panel detail-panel" aria-labelledby="details-title">
+            <div class="panel-heading panel-heading-inline">
+              <div><h2 id="details-title">Detalles</h2><p>Precios y totales estimativos; el servidor calcula los importes definitivos.</p></div>
+              <button id="add-item" class="button button-success" type="button">+ Agregar ítem</button>
+            </div>
+            <div class="table-scroll">
+              <table class="detail-table">
+                <thead>
+                  <tr><th>Producto / descripción e IDs</th><th>Cantidad</th><th>Precio Unitario</th><th>Bonif. %</th><th>IVA %</th><th class="numeric">Subtotal</th><th></th></tr>
+                </thead>
+                <tbody id="detail-rows"></tbody>
+                <tfoot>
+                  <tr><td colspan="5" class="total-label">Importe Total estimado</td><td id="estimated-total" class="numeric total-value">$ 0,00</td><td></td></tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <div id="form-message" class="form-message" role="alert" hidden></div>
+          <div class="form-actions">
+            <button id="save-invoice" class="button button-primary" type="submit">Guardar</button>
+            <button id="cancel-form" class="button button-secondary" type="button">Cancelar</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <aside class="trace-panel" aria-labelledby="trace-title">
+      <div class="trace-heading">
+        <h2 id="trace-title">Trazas de comunicación con el backend</h2>
+        <button id="clear-traces" class="button button-secondary button-small" type="button">Limpiar</button>
+      </div>
+      <div id="trace-list" class="trace-list" aria-live="polite">
+        <p class="trace-empty">Las solicitudes realizadas aparecerán aquí.</p>
+      </div>
+    </aside>
+  </body>
+</html>
