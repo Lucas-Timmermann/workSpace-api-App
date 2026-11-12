@@ -1,9 +1,10 @@
 import type {
+  EnvioArcaProcesoDTO,
   FacturaDetalleRequestDTO,
   FacturaFiltrosDTO,
+  FacturaReporteDTO,
   FacturaRequestDTO,
   FacturaVentaPaginaDTO,
-  FacturaVentaDTO,
   CatalogoDenominacionDTO,
   PuntoVentaDTO,
   ListaPrecioArticuloDTO,
@@ -28,6 +29,7 @@ type DetailDraft = {
 const service = new FacturaService();
 const listView = requiredElement<HTMLElement>("list-view");
 const formView = requiredElement<HTMLElement>("form-view");
+const formTitle = requiredElement<HTMLHeadingElement>("form-title");
 const filtersForm = requiredElement<HTMLFormElement>("filters-form");
 const invoiceForm = requiredElement<HTMLFormElement>("invoice-form");
 const rows = requiredElement<HTMLTableSectionElement>("invoice-rows");
@@ -42,14 +44,25 @@ const nextPageButton = requiredElement<HTMLButtonElement>("next-page");
 const pageStatus = requiredElement<HTMLSpanElement>("page-status");
 const catalogMessage = requiredElement<HTMLDivElement>("catalog-message");
 const apiNotice = requiredElement<HTMLDivElement>("api-notice");
+const actionNotice = requiredElement<HTMLDivElement>("action-notice");
 const retryCatalogsFormButton = requiredElement<HTMLButtonElement>("retry-catalogs-form");
 const articleExplorer = requiredElement<HTMLDialogElement>("article-explorer");
 const articleRows = requiredElement<HTMLTableSectionElement>("article-rows");
 const articleExplorerMessage = requiredElement<HTMLParagraphElement>("article-explorer-message");
 const confirmArticleSelection = requiredElement<HTMLButtonElement>("confirm-article-selection");
 const retryArticlesButton = requiredElement<HTMLButtonElement>("retry-articles");
+const arcaExplorer = requiredElement<HTMLDialogElement>("arca-explorer");
+const arcaRows = requiredElement<HTMLTableSectionElement>("arca-rows");
+const arcaMessage = requiredElement<HTMLParagraphElement>("arca-explorer-message");
+const arcaResult = requiredElement<HTMLDivElement>("arca-result");
+const sendArcaButton = requiredElement<HTMLButtonElement>("send-arca");
+const retryArcaButton = requiredElement<HTMLButtonElement>("retry-arca");
+const pdfExplorer = requiredElement<HTMLDialogElement>("pdf-explorer");
+const pdfInvoiceSelect = requiredElement<HTMLSelectElement>("pdf-invoice");
+const pdfMessage = requiredElement<HTMLParagraphElement>("pdf-explorer-message");
+const printPdfButton = requiredElement<HTMLButtonElement>("print-pdf-confirm");
 
-let invoices: FacturaVentaDTO[] = [];
+let invoices: FacturaReporteDTO[] = [];
 let currentFilters: FacturaFiltrosDTO = {};
 let facturaPagina: FacturaVentaPaginaDTO = {
   contenido: [], pagina: 0, tamanoPagina: 10, totalElementos: 0, totalPaginas: 0,
@@ -70,6 +83,14 @@ let selectedListaPrecioId = "";
 let loading = false;
 let saving = false;
 let formDirty = false;
+let editingInvoiceId: number | null = null;
+let editingImporteCobrado = 0;
+let anulando = false;
+let pendingInvoices: FacturaReporteDTO[] = [];
+let arcaLoading = false;
+let arcaSending = false;
+let arcaLoadVersion = 0;
+let pdfPrinting = false;
 let latestTraceItems: FacturaHttpTrace[] = [];
 
 function requiredElement<T extends HTMLElement>(id: string): T {
@@ -99,7 +120,7 @@ function textElement(tag: keyof HTMLElementTagNameMap, text: string, className?:
   return element;
 }
 
-function setFormMessage(message: string, kind: "error" | "success"): void {
+function setFormMessage(message: string, kind: "error" | "success" | "warning"): void {
   formMessage.textContent = message;
   formMessage.className = `form-message ${kind}`;
   formMessage.hidden = false;
@@ -109,6 +130,11 @@ function hideFormMessage(): void {
   formMessage.textContent = "";
   formMessage.hidden = true;
   formMessage.className = "form-message";
+}
+
+function setActionNotice(message: string, kind: "info" | "success" | "error" | "warning" = "info"): void {
+  actionNotice.textContent = message;
+  actionNotice.className = `notice notice-${kind}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -175,6 +201,43 @@ function appendCell(row: HTMLTableRowElement, content: string, className?: strin
   return cell;
 }
 
+function iconButton(action: "edit" | "delete", label: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = action === "delete"
+    ? "button button-danger button-small icon-button"
+    : "button button-secondary button-small icon-button";
+  button.dataset.action = action;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const paths = action === "edit"
+    ? ["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]
+    : ["M3 6h18", "M8 6V4h8v2", "M19 6l-1 14H6L5 6", "M10 11v6", "M14 11v6"];
+  for (const data of paths) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", data);
+    svg.append(path);
+  }
+  button.append(svg);
+  return button;
+}
+
+function isEditable(invoice: FacturaReporteDTO): boolean {
+  return invoice.estado === "PENDIENTE" || invoice.estado === "RECHAZADA";
+}
+
+function isAnulable(invoice: FacturaReporteDTO): boolean {
+  return invoice.estado === "PENDIENTE" || invoice.estado === "RECHAZADA";
+}
+
 function renderInvoiceList(): void {
   rows.replaceChildren();
   retryButton.hidden = false;
@@ -204,21 +267,28 @@ function renderInvoiceList(): void {
     appendCell(row, String(invoice.detalles.length), "numeric");
 
     const actions = document.createElement("td");
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "row-actions";
+
     const viewDetails = document.createElement("button");
     viewDetails.type = "button";
     viewDetails.className = "button button-secondary button-small";
     viewDetails.dataset.action = "details";
     viewDetails.dataset.index = String(index);
     viewDetails.textContent = expandedInvoices.has(invoice.id) ? "Ocultar ítems" : "Ver ítems";
-    actions.append(viewDetails);
+    actionGroup.append(viewDetails);
 
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "button button-danger button-small";
-    deleteButton.textContent = "Anular";
-    deleteButton.disabled = true;
-    deleteButton.title = "Anulación lógica no incluida en esta tarea.";
-    actions.append(deleteButton);
+    if (isEditable(invoice)) {
+      const editButton = iconButton("edit", `Editar factura ${invoice.numeroFactura}`);
+      editButton.dataset.index = String(index);
+      actionGroup.append(editButton);
+    }
+    if (isAnulable(invoice)) {
+      const deleteButton = iconButton("delete", `Anular factura ${invoice.numeroFactura}`);
+      deleteButton.dataset.index = String(index);
+      actionGroup.append(deleteButton);
+    }
+    actions.append(actionGroup);
     row.append(actions);
     rows.append(row);
 
@@ -585,15 +655,37 @@ function updateEstimatedTotal(): void {
   totalNode.textContent = money(rounded(amounts.reduce((sum, amount) => sum + amount.subtotal, 0)));
 }
 
-function showForm(): void {
+function todayIso(): string {
+  const localToday = new Date();
+  return [localToday.getFullYear(), String(localToday.getMonth() + 1).padStart(2, "0"), String(localToday.getDate()).padStart(2, "0")].join("-");
+}
+
+function setSelectValue(name: string, value: number | null): void {
+  select(name).value = value === null ? "" : String(value);
+}
+
+function showForm(invoice?: FacturaReporteDTO): void {
   invoiceForm.reset();
   selectedListaPrecioId = "";
-  const localToday = new Date();
-  input("fechaEmision").value = [localToday.getFullYear(), String(localToday.getMonth() + 1).padStart(2, "0"), String(localToday.getDate()).padStart(2, "0")].join("-");
-  input("importeCobrado").value = "0";
+  editingInvoiceId = invoice?.id ?? null;
+  editingImporteCobrado = invoice?.importeCobrado ?? 0;
+  formTitle.textContent = invoice
+    ? `Editar Factura de Venta N° ${invoice.numeroFactura}`
+    : "Nueva Factura de Venta";
+  input("fechaEmision").value = invoice?.fechaEmision ?? todayIso();
   details = [];
   formDirty = false;
   hideFormMessage();
+  if (invoice) {
+    setSelectValue("puntoVentaId", invoice.puntoVentaId);
+    setSelectValue("clienteId", invoice.clienteId);
+    setSelectValue("condicionIvaId", invoice.condicionIvaId);
+    setSelectValue("tipoMonedaId", invoice.tipoMonedaId);
+    setFormMessage(
+      "Se cargaron los datos de la factura. El backend no devuelve los IDs de artículo y lista de precio de los ítems existentes, por lo que debés volver a agregarlos con «+ Agregar ítem» para guardar la edición.",
+      "warning",
+    );
+  }
   renderDetailRows();
   listView.hidden = true;
   formView.hidden = false;
@@ -602,6 +694,9 @@ function showForm(): void {
 
 function discardForm(): void {
   if (formDirty && !window.confirm("Hay datos sin guardar. ¿Deseas descartarlos y volver al listado?")) return;
+  editingInvoiceId = null;
+  editingImporteCobrado = 0;
+  formTitle.textContent = "Nueva Factura de Venta";
   formView.hidden = true;
   listView.hidden = false;
   hideFormMessage();
@@ -623,7 +718,6 @@ function collectRequest(): FacturaRequestDTO | null {
   const puntoVentaId = validNumber(select("puntoVentaId").value, 1, true);
   const tipoMonedaId = validNumber(select("tipoMonedaId").value, 1, true);
   const listaPrecioId = validNumber(select("listaPrecioId").value, 1, true);
-  const cobrado = validNumber(input("importeCobrado").value, 0);
   for (const [name, value] of [
     ["clienteId", clienteId],
     ["condicionIvaId", condicionIvaId],
@@ -634,7 +728,7 @@ function collectRequest(): FacturaRequestDTO | null {
     if (value === null) select(name).classList.add("invalid-field");
   }
   if (clienteId === null || condicionIvaId === null || puntoVentaId === null
-      || tipoMonedaId === null || listaPrecioId === null || cobrado === null) {
+      || tipoMonedaId === null || listaPrecioId === null) {
     invalid = true;
   }
   if (details.length === 0) {
@@ -670,14 +764,8 @@ function collectRequest(): FacturaRequestDTO | null {
   }
 
   if (invalid || clienteId === null || condicionIvaId === null || puntoVentaId === null
-      || tipoMonedaId === null || listaPrecioId === null || cobrado === null) {
+      || tipoMonedaId === null || listaPrecioId === null) {
     setFormMessage("Completa fecha, Punto de Venta, Cliente, Condición IVA, Moneda y Lista Precio; verifica importes y cantidades.", "error");
-    return null;
-  }
-
-  const totalEstimado = rounded(details.reduce((sum, detail) => sum + lineAmounts(detail).subtotal, 0));
-  if (cobrado > totalEstimado) {
-    setFormMessage("El importe cobrado no puede superar el total calculado de la factura.", "error");
     return null;
   }
 
@@ -694,9 +782,9 @@ function collectRequest(): FacturaRequestDTO | null {
     condicionIvaId,
     puntoVentaId,
     tipoMonedaId,
-    importeCobrado: cobrado,
-    resultadoAfip: "PENDIENTE",
-    estado: "PENDIENTE",
+    // The field is no longer shown; the server still requires it. Preserve the
+    // existing value when editing, otherwise register the invoice as unpaid.
+    importeCobrado: editingInvoiceId === null ? 0 : editingImporteCobrado,
     detalles: requestDetails,
   };
 }
@@ -708,16 +796,23 @@ async function saveInvoice(event: SubmitEvent): Promise<void> {
   const request = collectRequest();
   if (!request) return;
 
+  const editingId = editingInvoiceId;
+  const page = editingId === null ? 0 : facturaPagina.pagina;
   saving = true;
   saveButton.disabled = true;
   saveButton.textContent = "Guardando…";
   try {
-    const response = await service.crearFactura(request);
+    const response = editingId === null
+      ? await service.crearFactura(request)
+      : await service.actualizarFactura(editingId, request);
     formDirty = false;
+    editingInvoiceId = null;
+    editingImporteCobrado = 0;
+    formTitle.textContent = "Nueva Factura de Venta";
     formView.hidden = true;
     listView.hidden = false;
-    window.alert(`Factura ${response.numeroFactura} creada correctamente.`);
-    await loadInvoices(currentFilters, 0);
+    window.alert(`Factura ${response.numeroFactura} ${editingId === null ? "creada" : "actualizada"} correctamente.`);
+    await loadInvoices(currentFilters, page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (error) {
     setFormMessage(errorMessage(error), "error");
@@ -725,6 +820,259 @@ async function saveInvoice(event: SubmitEvent): Promise<void> {
     saving = false;
     saveButton.disabled = false;
     saveButton.textContent = "Guardar";
+  }
+}
+
+function startEdit(invoice: FacturaReporteDTO): void {
+  if (!isEditable(invoice)) {
+    setActionNotice("El estado actual de la factura no permite editarla.", "warning");
+    return;
+  }
+  if (catalogosLoading) {
+    setActionNotice("Esperá a que terminen de cargar los catálogos para editar la factura.", "warning");
+    return;
+  }
+  if ([puntosVenta, clientes, condicionesIva, tiposMoneda, listasPrecio].some((items) => items.length === 0)) {
+    setActionNotice("No se pudieron cargar los catálogos necesarios para editar la factura. Reintentá la carga y volvé a intentarlo.", "error");
+    return;
+  }
+  showForm(invoice);
+}
+
+async function annulInvoice(invoice: FacturaReporteDTO, button: HTMLButtonElement): Promise<void> {
+  if (anulando) return;
+  if (!isAnulable(invoice)) {
+    setActionNotice("El estado actual de la factura no permite anularla.", "warning");
+    return;
+  }
+  const confirmation = window.confirm(
+    `¿Anular la factura N° ${invoice.numeroFactura} de ${invoice.clienteDenominacion} por ${money(invoice.importeTotal)}? `
+    + "La anulación es lógica y no puede revertirse desde esta interfaz.",
+  );
+  if (!confirmation) return;
+
+  anulando = true;
+  button.disabled = true;
+  try {
+    await service.anularFactura(invoice.id);
+    setActionNotice(`Factura N° ${invoice.numeroFactura} anulada correctamente.`, "success");
+    await loadInvoices(currentFilters, facturaPagina.pagina);
+  } catch (error) {
+    setActionNotice(`No se pudo anular la factura N° ${invoice.numeroFactura}: ${errorMessage(error)}`, "error");
+    button.disabled = false;
+  } finally {
+    anulando = false;
+  }
+}
+
+function renderPendingRows(): void {
+  arcaRows.replaceChildren();
+  for (const invoice of pendingInvoices) {
+    const row = document.createElement("tr");
+    appendCell(row, String(invoice.numeroFactura));
+    appendCell(row, invoice.fechaEmision ?? "—");
+    appendCell(row, invoice.clienteDenominacion);
+    appendCell(row, money(invoice.importeTotal), "numeric");
+    const stateCell = document.createElement("td");
+    stateCell.append(textElement("span", invoice.estado, "status-pill"));
+    row.append(stateCell);
+    arcaRows.append(row);
+  }
+  sendArcaButton.disabled = arcaSending || arcaLoading || pendingInvoices.length === 0;
+}
+
+async function loadPendingInvoices(): Promise<void> {
+  const version = ++arcaLoadVersion;
+  arcaLoading = true;
+  pendingInvoices = [];
+  arcaRows.replaceChildren();
+  retryArcaButton.hidden = true;
+  sendArcaButton.disabled = true;
+  arcaMessage.textContent = "Cargando facturas pendientes…";
+  try {
+    const todas: FacturaReporteDTO[] = [];
+    let page = 0;
+    let totalPaginas = 1;
+    do {
+      const result = await service.obtenerFacturasPendientes({ page });
+      if (version !== arcaLoadVersion) return;
+      todas.push(...result.contenido);
+      totalPaginas = result.totalPaginas;
+      page += 1;
+    } while (page < totalPaginas);
+    if (version !== arcaLoadVersion) return;
+    pendingInvoices = todas;
+    arcaLoading = false;
+    arcaMessage.textContent = pendingInvoices.length === 0
+      ? "No hay facturas pendientes de envío a ARCA."
+      : `${pendingInvoices.length} factura(s) pendiente(s) de envío a ARCA.`;
+    renderPendingRows();
+  } catch (error) {
+    if (version !== arcaLoadVersion) return;
+    arcaLoading = false;
+    pendingInvoices = [];
+    arcaRows.replaceChildren();
+    arcaMessage.textContent = `No se pudieron cargar las facturas pendientes: ${errorMessage(error)}`;
+    retryArcaButton.hidden = false;
+    sendArcaButton.disabled = true;
+  }
+}
+
+function openArcaExplorer(): void {
+  arcaResult.hidden = true;
+  arcaResult.replaceChildren();
+  arcaExplorer.showModal();
+  requiredElement<HTMLButtonElement>("close-arca-explorer").focus();
+  void loadPendingInvoices();
+}
+
+function arcaResultClass(resultado: string): string {
+  switch (resultado) {
+    case "APROBADA": return "send-result-success";
+    case "RECHAZADA": return "send-result-error";
+    case "INCIERTO": return "send-result-warning";
+    default: return "send-result-muted";
+  }
+}
+
+function renderArcaResult(result: EnvioArcaProcesoDTO): void {
+  arcaResult.replaceChildren();
+  const summary = textElement(
+    "p",
+    `Proceso ${result.envioId}: ${result.procesadas} procesada(s), ${result.autorizadas} autorizada(s), `
+    + `${result.rechazadas} rechazada(s), ${result.resultadoDesconocido} con resultado desconocido, `
+    + `${result.noEnviadasPorValidacion} no enviada(s) por validación.`,
+    "send-summary",
+  );
+  arcaResult.append(summary);
+
+  if (result.detalle.length === 0) {
+    arcaResult.append(textElement("p", "El backend no devolvió detalle por factura.", "send-result-muted"));
+  }
+  for (const item of result.detalle) {
+    const entry = document.createElement("div");
+    entry.className = `send-result-item ${arcaResultClass(item.resultado)}`;
+    const numero = item.numeroInterno ?? item.facturaId ?? "—";
+    entry.append(textElement("strong", `Factura ${numero}: ${item.resultado}`));
+    if (item.estado) entry.append(textElement("span", `Estado actual: ${item.estado}`));
+    if (item.cae) entry.append(textElement("span", `CAE: ${item.cae}`));
+    if (item.mensaje) entry.append(textElement("span", item.mensaje));
+    arcaResult.append(entry);
+  }
+
+  if (result.resultadoDesconocido > 0) {
+    arcaResult.append(textElement(
+      "p",
+      "Las facturas con resultado desconocido no se reenvían automáticamente. El backend debe resolver su estado mediante conciliación.",
+      "send-result-warning",
+    ));
+  }
+  arcaResult.hidden = false;
+}
+
+async function sendPendingToArca(): Promise<void> {
+  if (arcaSending) return;
+  if (pendingInvoices.length === 0) {
+    arcaMessage.textContent = "No hay facturas pendientes para enviar a ARCA.";
+    return;
+  }
+  if (!window.confirm(`Se enviarán ${pendingInvoices.length} factura(s) a ARCA. ¿Continuar?`)) return;
+
+  arcaSending = true;
+  sendArcaButton.disabled = true;
+  sendArcaButton.textContent = "Enviando…";
+  arcaMessage.textContent = "Procesando el envío a ARCA…";
+  try {
+    const result = await service.enviarFacturasAArca(pendingInvoices.map((invoice) => invoice.id));
+    renderArcaResult(result);
+    arcaMessage.textContent = "Envío finalizado. Revisá el resultado por factura.";
+    await loadPendingInvoices();
+    await loadInvoices(currentFilters, facturaPagina.pagina);
+  } catch (error) {
+    arcaMessage.textContent = `No se pudo completar el envío a ARCA: ${errorMessage(error)}`;
+  } finally {
+    arcaSending = false;
+    sendArcaButton.textContent = "Envio a ARCA";
+    sendArcaButton.disabled = arcaLoading || pendingInvoices.length === 0;
+  }
+}
+
+function pdfTarget(): string {
+  return document.querySelector<HTMLInputElement>('input[name="pdf-target"]:checked')?.value ?? "individual";
+}
+
+function updatePdfControls(): void {
+  const individual = pdfTarget() === "individual";
+  pdfInvoiceSelect.disabled = !individual;
+  printPdfButton.disabled = pdfPrinting || (individual && !pdfInvoiceSelect.value);
+}
+
+function openPdfExplorer(): void {
+  if (loading) {
+    setActionNotice("Esperá a que termine de cargarse el listado para elegir una factura.", "warning");
+    return;
+  }
+  pdfMessage.textContent = "";
+  pdfInvoiceSelect.replaceChildren();
+  for (const invoice of invoices) {
+    pdfInvoiceSelect.add(new Option(
+      `${invoice.numeroFactura} — ${invoice.clienteDenominacion} — ${invoice.estado}`,
+      String(invoice.id),
+    ));
+  }
+  if (invoices.length === 0) {
+    pdfMessage.textContent = "No hay facturas en la página actual. Podés imprimir el listado completo.";
+  }
+  const individualRadio = document.querySelector<HTMLInputElement>('input[name="pdf-target"][value="individual"]');
+  const listadoRadio = document.querySelector<HTMLInputElement>('input[name="pdf-target"][value="listado"]');
+  if (invoices.length === 0 && listadoRadio) {
+    listadoRadio.checked = true;
+  } else if (individualRadio) {
+    individualRadio.checked = true;
+  }
+  updatePdfControls();
+  pdfExplorer.showModal();
+  requiredElement<HTMLButtonElement>("close-pdf-explorer").focus();
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function printPdf(): Promise<void> {
+  if (pdfPrinting) return;
+  const target = pdfTarget();
+  const invoiceId = Number(pdfInvoiceSelect.value);
+  if (target === "individual" && (!Number.isSafeInteger(invoiceId) || invoiceId <= 0)) {
+    pdfMessage.textContent = "Selecciona una factura válida para imprimir.";
+    return;
+  }
+
+  pdfPrinting = true;
+  printPdfButton.disabled = true;
+  printPdfButton.textContent = "Generando…";
+  pdfMessage.textContent = "Solicitando el PDF al backend…";
+  try {
+    const pdf = target === "individual"
+      ? await service.descargarPdfFactura(invoiceId)
+      : await service.descargarPdfListado();
+    downloadBlob(pdf.blob, pdf.filename);
+    pdfMessage.textContent = "PDF generado y descargado.";
+    setActionNotice(`PDF generado: ${pdf.filename}`, "success");
+    pdfExplorer.close();
+  } catch (error) {
+    pdfMessage.textContent = `No se pudo generar el PDF: ${errorMessage(error)}`;
+  } finally {
+    pdfPrinting = false;
+    printPdfButton.textContent = "Imprimir PDF";
+    updatePdfControls();
   }
 }
 
@@ -738,7 +1086,9 @@ requiredElement<HTMLButtonElement>("clear-filters").addEventListener("click", ()
   filtersForm.reset();
   void loadInvoices({}, 0);
 });
-requiredElement<HTMLButtonElement>("new-invoice").addEventListener("click", showForm);
+requiredElement<HTMLButtonElement>("new-invoice").addEventListener("click", () => showForm());
+requiredElement<HTMLButtonElement>("print-pdf").addEventListener("click", openPdfExplorer);
+requiredElement<HTMLButtonElement>("preview-arca").addEventListener("click", openArcaExplorer);
 requiredElement<HTMLButtonElement>("back-to-list").addEventListener("click", discardForm);
 requiredElement<HTMLButtonElement>("cancel-form").addEventListener("click", discardForm);
 requiredElement<HTMLButtonElement>("add-item").addEventListener("click", openArticleExplorer);
@@ -746,6 +1096,14 @@ requiredElement<HTMLButtonElement>("close-article-explorer").addEventListener("c
 requiredElement<HTMLButtonElement>("cancel-article-selection").addEventListener("click", () => articleExplorer.close());
 confirmArticleSelection.addEventListener("click", confirmArticles);
 retryArticlesButton.addEventListener("click", () => void loadArticlesForSelectedList());
+requiredElement<HTMLButtonElement>("close-arca-explorer").addEventListener("click", () => arcaExplorer.close());
+retryArcaButton.addEventListener("click", () => void loadPendingInvoices());
+sendArcaButton.addEventListener("click", () => void sendPendingToArca());
+requiredElement<HTMLButtonElement>("close-pdf-explorer").addEventListener("click", () => pdfExplorer.close());
+printPdfButton.addEventListener("click", () => void printPdf());
+document.querySelectorAll<HTMLInputElement>('input[name="pdf-target"]').forEach((radio) => {
+  radio.addEventListener("change", updatePdfControls);
+});
 previousPageButton.addEventListener("click", () => {
   if (facturaPagina.pagina > 0) void loadInvoices(currentFilters, facturaPagina.pagina - 1);
 });
@@ -812,13 +1170,25 @@ detailRows.addEventListener("click", (event) => {
 });
 rows.addEventListener("click", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLButtonElement) || target.dataset.action !== "details") return;
-  const index = Number(target.dataset.index);
+  if (!(target instanceof Element)) return;
+  const button = target.closest("button");
+  if (!(button instanceof HTMLButtonElement)) return;
+  const index = Number(button.dataset.index);
   const invoice = invoices[index];
   if (!invoice) return;
-  if (expandedInvoices.has(invoice.id)) expandedInvoices.delete(invoice.id);
-  else expandedInvoices.add(invoice.id);
-  renderInvoiceList();
+  if (button.dataset.action === "details") {
+    if (expandedInvoices.has(invoice.id)) expandedInvoices.delete(invoice.id);
+    else expandedInvoices.add(invoice.id);
+    renderInvoiceList();
+    return;
+  }
+  if (button.dataset.action === "edit") {
+    startEdit(invoice);
+    return;
+  }
+  if (button.dataset.action === "delete") {
+    void annulInvoice(invoice, button);
+  }
 });
 
 renderTraces();

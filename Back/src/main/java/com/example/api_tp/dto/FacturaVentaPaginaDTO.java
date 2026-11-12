@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class FacturaVentaPaginaDTO {
-    private List<FacturaVentaDTO> contenido;
+    private List<FacturaReporteDTO> contenido;
     private int pagina;
     private int tamanoPagina;
     private long totalElementos;

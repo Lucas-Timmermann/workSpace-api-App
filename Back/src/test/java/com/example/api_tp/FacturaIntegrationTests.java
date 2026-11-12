@@ -3,6 +3,7 @@ package com.example.api_tp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.containsString;
@@ -66,7 +67,8 @@ import jakarta.persistence.EntityManager;
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
-        "app.auditoria.usuario-id=1"
+        "app.auditoria.usuario-id=1",
+        "app.seed.enabled=false"
 })
 @AutoConfigureMockMvc
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -125,6 +127,13 @@ class FacturaIntegrationTests {
         assertEquals(180.0, guardada.getDetalles().get(0).getImporteNeto(), 0.001);
         assertEquals(37.8, guardada.getDetalles().get(0).getImporteIva(), 0.001);
         assertEquals(217.8, guardada.getImporteSaldo(), 0.001);
+        assertEquals(1, guardada.getTipoComprobanteArca());
+        assertEquals(1, guardada.getConceptoArca());
+        assertEquals(80, guardada.getDocTipoReceptorArca());
+        assertEquals(20123456789L, guardada.getDocNroReceptorArca());
+        assertEquals(1, guardada.getCondicionIvaReceptorArca());
+        assertEquals("PES", guardada.getMonedaArca());
+        assertEquals(1.0, guardada.getCotizacionArca(), 0.001);
     }
 
     @Test
@@ -255,7 +264,7 @@ class FacturaIntegrationTests {
         mockMvc.perform(delete("/api/facturas/{id}", factura.getId()))
                 .andExpect(status().isNoContent());
         FacturaVenta anulada = buscarFactura(2026102111L);
-        assertEquals("ANULADA", anulada.getEstado());
+        assertEquals("ANULADA_LOCAL", anulada.getEstado());
         assertNotNull(anulada.getFechaAnulacion());
         assertNotNull(anulada.getFechaBaja());
 
@@ -532,6 +541,164 @@ class FacturaIntegrationTests {
         }
         }
 
+    @Test
+    void rechazaPropiedadesDesconocidasYNoAceptaCamposDeControl() throws Exception {
+        Fixture fixture = crearFixture();
+        String conDesconocida = cuerpoFactura(600001L, fixture, fixture.clienteId(),
+                lineJson(null, fixture, "1", "100", "0", "21"))
+                .replace("\"detalles\"", "\"propiedadInventada\": 1, \"detalles\"");
+        mockMvc.perform(post("/api/facturas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(conDesconocida))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.tipo").value("FORMATO"))
+                .andExpect(content().string(containsString("propiedadInventada")));
+
+        String conControl = cuerpoFactura(600002L, fixture, fixture.clienteId(),
+                lineJson(null, fixture, "1", "100", "0", "21"))
+                .replace("\"estado\": \"PENDIENTE\"", "\"estado\": \"AUTORIZADA\"")
+                .replace("\"resultadoAfip\": \"PENDIENTE\"", "\"resultadoAfip\": \"A\"");
+        mockMvc.perform(post("/api/facturas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(conControl))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estado").value("PENDIENTE"));
+    }
+
+    @Test
+    void rechazaDatosFiscalesEnviadosDesdeElFrontend() throws Exception {
+        Fixture fixture = crearFixture();
+        String base = cuerpoFactura(600010L, fixture, fixture.clienteId(),
+                lineJson(null, fixture, "1", "100", "0", "21"));
+        List<String> propiedades = List.of(
+                "\"tipoComprobanteArca\": 1",
+                "\"conceptoArca\": 1",
+                "\"docTipoReceptorArca\": 80",
+                "\"docNroReceptorArca\": 20123456789",
+                "\"condicionIvaReceptorArca\": 5",
+                "\"monedaArca\": \"USD\"",
+                "\"cotizacionArca\": 1000");
+        for (String propiedad : propiedades) {
+            mockMvc.perform(post("/api/facturas")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(base.replace("\"detalles\"", propiedad + ", \"detalles\"")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().string(containsString("no permitida")));
+        }
+    }
+
+    @Test
+    void recalculaDatosFiscalesAlEditarFacturaPendiente() throws Exception {
+        Fixture fixture = crearFixture();
+        publicarFactura(2026102130L, fixture, lineJson(null, fixture, "1", "100", "0", "21"));
+        FacturaVenta original = buscarFactura(2026102130L);
+        assertEquals(1, original.getTipoComprobanteArca());
+
+        Long condicionConsumidorFinal = transactions.execute(status -> {
+            Usuario usuario = entityManager.getReference(Usuario.class, usuarioId);
+            Date ahora = new Date();
+            CondicionIva condicion = new CondicionIva();
+            condicion.setCodigoAfip(5);
+            condicion.setDenominacion("Consumidor Final");
+            auditar(condicion, usuario, ahora);
+            entityManager.persist(condicion);
+            entityManager.flush();
+            return condicion.getId();
+        });
+        Long monedaUsd = transactions.execute(status -> {
+            Usuario usuario = entityManager.getReference(Usuario.class, usuarioId);
+            Date ahora = new Date();
+            TipoMoneda moneda = new TipoMoneda();
+            moneda.setCodigoAfip("USD");
+            moneda.setDenominacion("Dólar");
+            moneda.setSimbolo("US$");
+            auditar(moneda, usuario, ahora);
+            entityManager.persist(moneda);
+            entityManager.flush();
+            return moneda.getId();
+        });
+
+        mockMvc.perform(put("/api/facturas/{id}", original.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoFactura(2026102130L, fixture, fixture.clienteId(),
+                                lineJson(null, fixture, "1", "100", "0", "21"))
+                                .replace("\"condicionIvaId\": " + fixture.condicionIvaId(),
+                                        "\"condicionIvaId\": " + condicionConsumidorFinal)
+                                .replace("\"tipoMonedaId\": " + fixture.tipoMonedaId(),
+                                        "\"tipoMonedaId\": " + monedaUsd)))
+                .andExpect(status().isOk());
+
+        FacturaVenta actualizada = buscarFactura(2026102130L);
+        assertEquals(6, actualizada.getTipoComprobanteArca());
+        assertEquals(5, actualizada.getCondicionIvaReceptorArca());
+        assertEquals("USD", actualizada.getMonedaArca());
+        assertNull(actualizada.getCotizacionArca());
+        assertEquals(80, actualizada.getDocTipoReceptorArca());
+        assertEquals(20123456789L, actualizada.getDocNroReceptorArca());
+    }
+
+    @Test
+    void rechazaClienteSinDocumentoFiscalValido() throws Exception {
+        Fixture fixture = crearFixture();
+        Long clienteInvalido = crearCliente("S/D");
+        long facturasAntes = contarTodasFacturas();
+
+        mockMvc.perform(post("/api/facturas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoFactura(2026102131L, fixture, clienteInvalido,
+                                lineJson(null, fixture, "1", "100", "0", "21"))))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(facturasAntes, contarTodasFacturas());
+    }
+
+    @Test
+    void determinaDocumentoTipoDniCuandoElClienteNoTieneCuit() throws Exception {
+        Fixture fixture = crearFixture();
+        Long clienteDni = crearCliente("12345678");
+
+        mockMvc.perform(post("/api/facturas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoFactura(2026102132L, fixture, clienteDni,
+                                lineJson(null, fixture, "1", "100", "0", "21"))))
+                .andExpect(status().isCreated());
+
+        FacturaVenta guardada = buscarUltimaFactura();
+        assertEquals(96, guardada.getDocTipoReceptorArca());
+        assertEquals(12345678L, guardada.getDocNroReceptorArca());
+    }
+
+    @Test
+    void respuestasDeErrorUsanEstructuraUniformeYCodigosCoherentes() throws Exception {
+        mockMvc.perform(get("/api/facturas/{id}", 999999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.timestamp").isString())
+                .andExpect(jsonPath("$.tipo").value("SOLICITUD"))
+                .andExpect(jsonPath("$.message").isString());
+
+        mockMvc.perform(put("/api/facturas"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.tipo").value("METODO"));
+
+        mockMvc.perform(post("/api/facturas")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("{}"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.status").value(415));
+
+        mockMvc.perform(get("/api/facturas").param("numeroFactura", "no-es-numero"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.tipo").value("PARAMETRO"));
+
+        mockMvc.perform(get("/api/facturas").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
     private void esperarBadRequest(long numero, Fixture fixture, String detalle) throws Exception {
         long facturasAntes = contarTodasFacturas();
         mockMvc.perform(post("/api/facturas")
@@ -692,6 +859,34 @@ class FacturaIntegrationTests {
         entidad.setUsuarioModificacion(usuario);
     }
 
+    private Long crearCliente(String cuitCuil) {
+        return transactions.execute(status -> {
+            Usuario usuario = entityManager.getReference(Usuario.class, usuarioId);
+            Date ahora = new Date();
+
+            Contacto contacto = new Contacto();
+            contacto.setEmail("cliente@example.test");
+            contacto.setTelefono("1100000000");
+            contacto.setCelular("1500000000");
+            entityManager.persist(contacto);
+
+            Domicilio domicilio = new Domicilio();
+            domicilio.setNombreCalle("Calle Cliente");
+            domicilio.setNumeroCalle("456");
+            entityManager.persist(domicilio);
+
+            Cliente cliente = new Cliente();
+            cliente.setCuitCuil(cuitCuil);
+            cliente.setDenominacion("Cliente " + cuitCuil);
+            cliente.setContacto(contacto);
+            cliente.setDomicilio(domicilio);
+            auditar(cliente, usuario, ahora);
+            entityManager.persist(cliente);
+            entityManager.flush();
+            return cliente.getId();
+        });
+    }
+
     private FacturaVenta buscarFactura(long numero) {
         Long numeroAsignado = numerosPorMarcador.get(numero);
         if (numeroAsignado == null) {
@@ -724,15 +919,12 @@ class FacturaIntegrationTests {
 
     private FacturaRequestDTO request(long numero, Fixture fixture) {
         FacturaRequestDTO request = new FacturaRequestDTO();
-        request.setNumero(numero);
         request.setFechaEmision(new Date());
         request.setClienteId(fixture.clienteId());
         request.setCondicionIvaId(fixture.condicionIvaId());
         request.setPuntoVentaId(fixture.puntoVentaId());
         request.setTipoMonedaId(fixture.tipoMonedaId());
         request.setImporteCobrado(BigDecimal.ZERO);
-        request.setResultadoAfip("PENDIENTE");
-        request.setEstado("PENDIENTE");
         return request;
     }
 

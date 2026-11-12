@@ -60,9 +60,27 @@ public class FacturaVenta extends AuditoriaApp {
     private String estado;
     private Date fechaAnulacion;
     private String observaciones;
+
+
+    private Integer tipoComprobanteArca;
+    private Integer conceptoArca;
+    private Integer docTipoReceptorArca;
+    private Long docNroReceptorArca;
+    private Integer condicionIvaReceptorArca;
+    private String monedaArca;
+    private Double cotizacionArca;
+    private Long numeroFiscal;
+    private Date fechaEnvioArca;
+    private Date fechaAutorizacionArca;
+    private Date fechaResultadoArca;
+
     @OneToMany(mappedBy = "factura", cascade = CascadeType.ALL)
     @Builder.Default
     private List<FacturaVentaDetalle> detalles = new ArrayList<>();
+
+    @OneToMany(mappedBy = "factura", cascade = CascadeType.ALL)
+    @Builder.Default
+    private List<FacturaEnvioArca> enviosArca = new ArrayList<>();
 
     public void addDetalle(FacturaVentaDetalle detalle) {
         detalles.add(detalle);

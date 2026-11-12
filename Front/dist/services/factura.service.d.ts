@@ -1,4 +1,4 @@
-import type { FacturaFiltrosDTO, FacturaReporteDTO, FacturaRequestDTO, FacturaVentaPaginaDTO, CatalogoDenominacionDTO, PuntoVentaDTO, ListaPrecioArticuloDTO } from "../models/factura.dto.js";
+import type { EnvioArcaProcesoDTO, FacturaFiltrosDTO, FacturaReporteDTO, FacturaRequestDTO, FacturaVentaPaginaDTO, CatalogoDenominacionDTO, PdfDescargaDTO, PuntoVentaDTO, ListaPrecioArticuloDTO } from "../models/factura.dto.js";
 /** The backend's single invoice API base URL for local development. */
 export declare const FACTURAS_API_BASE_URL = "http://localhost:8080/api/facturas";
 export interface FacturaHttpTrace {
@@ -21,6 +21,8 @@ export declare class FacturaService {
     constructor(baseUrl?: string);
     setTraceListener(listener: (trace: FacturaHttpTrace) => void): void;
     obtenerFacturas(filtros: FacturaFiltrosDTO): Promise<FacturaVentaPaginaDTO>;
+    /** GET /api/facturas/pendientes: PENDIENTE and RECHAZADA invoices. */
+    obtenerFacturasPendientes(filtros: FacturaFiltrosDTO): Promise<FacturaVentaPaginaDTO>;
     obtenerPuntosVenta(): Promise<PuntoVentaDTO[]>;
     obtenerClientes(): Promise<CatalogoDenominacionDTO[]>;
     obtenerCondicionesIva(): Promise<CatalogoDenominacionDTO[]>;
@@ -28,13 +30,17 @@ export declare class FacturaService {
     obtenerListasPrecio(): Promise<CatalogoDenominacionDTO[]>;
     obtenerArticulosDeLista(listaPrecioId: number): Promise<ListaPrecioArticuloDTO[]>;
     crearFactura(factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;
-    /**
-     * The current API has no status-only route. Its PUT requires a complete
-    * FacturaRequestDTO, while GET does not provide the relation IDs needed to
-    * safely construct that request.
-     */
-    actualizarEstado(_id: number, _estado: string, _observaciones?: string): Promise<FacturaReporteDTO>;
-    eliminarFactura(id: number): Promise<void>;
+    /** PUT /api/facturas/{id}: full invoice update (PENDIENTE or RECHAZADA only). */
+    actualizarFactura(id: number, factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;
+    /** DELETE /api/facturas/{id}: logical annulment (the server marks ANULADA_LOCAL). */
+    anularFactura(id: number): Promise<void>;
+    /** POST /api/facturas/envios/arca: processes the selected invoices in ARCA. */
+    enviarFacturasAArca(ids: number[]): Promise<EnvioArcaProcesoDTO>;
+    /** GET /api/facturas/{id}/pdf: authorized-invoice PDF. */
+    descargarPdfFactura(id: number): Promise<PdfDescargaDTO>;
+    /** GET /api/facturas/pdf: complete invoice report (the backend accepts no filters). */
+    descargarPdfListado(): Promise<PdfDescargaDTO>;
+    private obtenerPaginaFacturas;
     private obtenerLista;
     private esPaginaFacturas;
     private apiRoot;
@@ -42,6 +48,8 @@ export declare class FacturaService {
     private formatearFecha;
     private esFechaCalendarioValida;
     private request;
+    private requestPdf;
+    private nombreArchivo;
     private mensajeError;
     private describeBody;
     private routeWithoutValues;

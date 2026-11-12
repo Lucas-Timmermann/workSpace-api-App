@@ -16,7 +16,11 @@
             <p class="eyebrow">Administración comercial</p>
             <h1 id="list-title">Facturas de Venta</h1>
           </div>
-          <button id="new-invoice" class="button button-primary" type="button">Nueva Factura</button>
+          <div class="page-actions">
+            <button id="new-invoice" class="button button-primary" type="button">Nueva Factura</button>
+            <button id="print-pdf" class="button button-secondary" type="button">Imprimir PDF</button>
+            <button id="preview-arca" class="button button-secondary" type="button">Previsualizado ARCA</button>
+          </div>
         </header>
 
         <div id="api-notice" class="notice notice-warning" role="status">
@@ -24,7 +28,7 @@
           <button id="retry-catalogs" class="button button-secondary button-small" type="button" hidden>Reintentar catálogos</button>
         </div>
         <div id="action-notice" class="notice notice-info" role="status">
-          El DELETE del backend realiza una anulación lógica (marca la factura como ANULADA), no una eliminación física. La anulación no está habilitada como acción en esta interfaz y no existe una ruta para cambiar únicamente el estado.
+          La anulación es lógica: la factura queda ANULADA_LOCAL. Las facturas autorizadas por ARCA no pueden anularse desde esta interfaz.
         </div>
 
         <section class="panel filter-panel" aria-labelledby="filters-title">
@@ -95,6 +99,49 @@
             <button id="next-page" class="button button-secondary button-small" type="button" disabled>Siguiente</button>
           </nav>
         </section>
+
+        <dialog id="arca-explorer" class="article-dialog explorer-dialog" aria-labelledby="arca-explorer-title">
+          <div class="article-dialog-header">
+            <div><p class="eyebrow">Envío electrónico</p><h2 id="arca-explorer-title">Facturas pendientes de ARCA</h2></div>
+            <button id="close-arca-explorer" class="button button-secondary button-small" type="button" aria-label="Cerrar explorador">Cerrar</button>
+          </div>
+          <p id="arca-explorer-message" class="muted" role="status" aria-live="polite">Consultando facturas pendientes…</p>
+          <div class="article-list-scroll">
+            <table class="article-table">
+              <thead><tr><th>Número</th><th>Fecha</th><th>Cliente</th><th class="numeric">Importe total</th><th>Estado</th></tr></thead>
+              <tbody id="arca-rows"></tbody>
+            </table>
+          </div>
+          <div id="arca-result" class="send-result" hidden></div>
+          <div class="article-dialog-actions">
+            <button id="retry-arca" class="button button-secondary" type="button" hidden>Reintentar</button>
+            <button id="send-arca" class="button button-primary" type="button" disabled>Envio a ARCA</button>
+          </div>
+        </dialog>
+
+        <dialog id="pdf-explorer" class="article-dialog explorer-dialog" aria-labelledby="pdf-explorer-title">
+          <div class="article-dialog-header">
+            <div><p class="eyebrow">Comprobantes</p><h2 id="pdf-explorer-title">Imprimir PDF</h2></div>
+            <button id="close-pdf-explorer" class="button button-secondary button-small" type="button" aria-label="Cerrar explorador">Cerrar</button>
+          </div>
+          <p class="muted">Elige qué documento generar. Los archivos los produce el backend.</p>
+          <div class="pdf-options">
+            <label class="pdf-option">
+              <input type="radio" name="pdf-target" value="individual" checked />
+              <span>Una única factura</span>
+            </label>
+            <select id="pdf-invoice" class="detail-input" aria-label="Factura a imprimir"></select>
+            <label class="pdf-option">
+              <input type="radio" name="pdf-target" value="listado" />
+              <span>Listado completo de facturas</span>
+            </label>
+            <p class="muted pdf-note">El selector muestra las facturas de la página actual del listado. Solo las facturas AUTORIZADA tienen comprobante individual. El reporte general incluye todas las facturas y el backend no admite filtros para ese PDF.</p>
+          </div>
+          <p id="pdf-explorer-message" class="muted" role="status" aria-live="polite"></p>
+          <div class="article-dialog-actions">
+            <button id="print-pdf-confirm" class="button button-primary" type="button">Imprimir PDF</button>
+          </div>
+        </dialog>
       </section>
 
       <section id="form-view" aria-labelledby="form-title" hidden>
@@ -137,10 +184,6 @@
               <label class="field">
                 <span>Lista Precio <b class="required-mark">*</b></span>
                 <select name="listaPrecioId" required disabled><option value="">Cargando…</option></select>
-              </label>
-              <label class="field">
-                <span>Importe cobrado</span>
-                <input name="importeCobrado" type="number" min="0" step="0.01" value="0" />
               </label>
             </div>
           </section>

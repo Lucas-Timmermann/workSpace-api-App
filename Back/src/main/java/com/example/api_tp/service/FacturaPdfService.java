@@ -15,9 +15,13 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.example.api_tp.config.ArcaProperties;
+import com.example.api_tp.model.EstadoFactura;
 import com.example.api_tp.model.FacturaVenta;
 import com.example.api_tp.model.FacturaVentaDetalle;
 import com.example.api_tp.repository.FacturaVentaRepository;
@@ -35,6 +39,8 @@ public class FacturaPdfService {
             .withLocale(new Locale("es", "AR")).withZone(ZoneOffset.UTC);
 
     private final FacturaVentaRepository facturaRepository;
+    private final FacturaEstadoMachine estadoMachine;
+    private final ArcaProperties arcaProperties;
 
     @Transactional(readOnly = true)
     public byte[] generarFacturas() {
@@ -49,7 +55,7 @@ public class FacturaPdfService {
                 writer.linea("No hay facturas registradas.", false, 10f);
             } else {
                 for (FacturaVenta factura : facturas) {
-                    writer.factura(factura);
+                    writer.factura(factura, arcaProperties.getCuit());
                 }
             }
             writer.cerrarPagina();
@@ -57,6 +63,33 @@ public class FacturaPdfService {
             return salida.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("No se pudo generar el PDF de facturas.", exception);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generarFacturaAutorizada(Long facturaId) {
+        FacturaVenta factura = facturaRepository.buscarPorIdConDetalles(facturaId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Factura con ID " + facturaId + " no existe"));
+        EstadoFactura estado = estadoMachine.parsear(factura.getEstado());
+        if (estado != EstadoFactura.AUTORIZADA) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Solo se puede generar PDF de facturas AUTORIZADA");
+        }
+        if (factura.getCae() == null || factura.getCae().isBlank() || factura.getCaeFechaVencimiento() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "La factura autorizada no tiene CAE o vencimiento registrado");
+        }
+        try (PDDocument documento = new PDDocument(); ByteArrayOutputStream salida = new ByteArrayOutputStream()) {
+            PdfWriter writer = new PdfWriter(documento);
+            writer.linea("Comprobante autorizado", true, 16f);
+            writer.espacio(4f);
+            writer.factura(factura, arcaProperties.getCuit());
+            writer.cerrarPagina();
+            documento.save(salida);
+            return salida.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException("No se pudo generar el PDF de la factura autorizada.", exception);
         }
     }
 
@@ -84,10 +117,15 @@ public class FacturaPdfService {
             nuevaPagina();
         }
 
-        private void factura(FacturaVenta factura) throws IOException {
+        private void factura(FacturaVenta factura, String cuitEmisor) throws IOException {
             comprobarEspacio(76f);
             linea("Factura " + factura.getNumero() + "   |   Emisión: " + fecha(factura.getFechaEmision()),
                     true, 11f);
+            linea("Emisor CUIT: " + valor(cuitEmisor)
+                    + "   |   Tipo: " + tipoComprobante(factura.getTipoComprobanteArca())
+                    + "   |   Punto de venta: " + puntoVenta(factura)
+                    + "   |   Nro. fiscal: " + valor(factura.getNumeroFiscal() == null
+                            ? null : String.valueOf(factura.getNumeroFiscal())), false, 9f);
             linea("Cliente: " + factura.getCliente().getDenominacion()
                     + "   |   Punto de venta: " + factura.getPuntoVenta().getDescripcion(), false, 9f);
             linea("Condición IVA: " + factura.getCondicionIva().getDenominacion()
@@ -196,5 +234,21 @@ public class FacturaPdfService {
 
     private static double iva(FacturaVenta factura) {
         return factura.getDetalles().stream().mapToDouble(FacturaVentaDetalle::getImporteIva).sum();
+    }
+
+    private static String tipoComprobante(Integer codigo) {
+        if (codigo == null) {
+            return "-";
+        }
+        return switch (codigo) {
+            case 1 -> "Factura A";
+            case 6 -> "Factura B";
+            case 11 -> "Factura C";
+            default -> "Comprobante " + codigo;
+        };
+    }
+
+    private static String puntoVenta(FacturaVenta factura) {
+        return factura.getPuntoVenta() == null ? "-" : String.valueOf(factura.getPuntoVenta().getNumero());
     }
 }

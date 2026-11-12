@@ -1,5 +1,74 @@
-{"properties": [{
-  "name": "app.auditoria.usuario-id",
-  "type": "java.lang.String",
-  "description": "A description for 'app.auditoria.usuario-id'"
-}]}
+{
+  "properties": [
+    {
+      "name": "app.auditoria.usuario-id",
+      "type": "java.lang.String",
+      "description": "ID del usuario usado para auditoría de aplicación."
+    },
+    {
+      "name": "app.arca.environment",
+      "type": "java.lang.String",
+      "description": "Ambiente ARCA activo (HOMOLOGACION)."
+    },
+    {
+      "name": "app.arca.cuit",
+      "type": "java.lang.String",
+      "description": "CUIT del emisor/representado para WSFEv1."
+    },
+    {
+      "name": "app.arca.condicion-iva-emisor",
+      "type": "java.lang.Integer",
+      "description": "Condición IVA del emisor según código AFIP (1 = Responsable Inscripto)."
+    },
+    {
+      "name": "app.arca.wsaa.url",
+      "type": "java.lang.String",
+      "description": "Endpoint SOAP LoginCms de WSAA (homologación)."
+    },
+    {
+      "name": "app.arca.wsaa.service",
+      "type": "java.lang.String",
+      "description": "Servicio solicitado en el TRA (ej. wsfe)."
+    },
+    {
+      "name": "app.arca.wsaa.connect-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout de conexión WSAA."
+    },
+    {
+      "name": "app.arca.wsaa.read-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout de lectura WSAA."
+    },
+    {
+      "name": "app.arca.wsaa.renewal-margin",
+      "type": "java.time.Duration",
+      "description": "Margen de renovación antes del vencimiento del Ticket de Acceso."
+    },
+    {
+      "name": "app.arca.wsfev1.url",
+      "type": "java.lang.String",
+      "description": "Endpoint SOAP de WSFEv1 (homologación)."
+    },
+    {
+      "name": "app.arca.wsfev1.connect-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout de conexión WSFEv1."
+    },
+    {
+      "name": "app.arca.wsfev1.read-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout de lectura WSFEv1."
+    },
+    {
+      "name": "app.arca.credentials.cert-path",
+      "type": "java.lang.String",
+      "description": "Ruta/ubicación del certificado X.509 (classpath:, file: o ruta)."
+    },
+    {
+      "name": "app.arca.credentials.key-path",
+      "type": "java.lang.String",
+      "description": "Ruta/ubicación de la clave privada (classpath:, file: o ruta)."
+    }
+  ]
+}

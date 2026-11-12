@@ -1,9 +1,11 @@
 import type {
+  EnvioArcaProcesoDTO,
   FacturaFiltrosDTO,
   FacturaReporteDTO,
   FacturaRequestDTO,
   FacturaVentaPaginaDTO,
   CatalogoDenominacionDTO,
+  PdfDescargaDTO,
   PuntoVentaDTO,
   ListaPrecioArticuloDTO,
 } from "../models/factura.dto.js";
@@ -43,24 +45,12 @@ export class FacturaService {
   }
 
   async obtenerFacturas(filtros: FacturaFiltrosDTO): Promise<FacturaVentaPaginaDTO> {
-    const url = new URL(this.baseUrl);
-    this.agregarFiltro(url, "numeroFactura", filtros.numeroFactura);
-    this.agregarFiltro(url, "clienteDenominacion", filtros.clienteDenominacion);
-    this.agregarFiltro(url, "condicionIva", filtros.condicionIva);
-    this.agregarFiltro(url, "fechaDesde", filtros.fechaDesde, true);
-    this.agregarFiltro(url, "fechaHasta", filtros.fechaHasta, true);
-    this.agregarFiltro(url, "page", filtros.page);
+    return this.obtenerPaginaFacturas(this.baseUrl, filtros, true);
+  }
 
-    const body: unknown = await this.request(url.toString(), { method: "GET" });
-    if (!this.esPaginaFacturas(body)) {
-      throw new FacturaServiceError(
-        "La API respondió correctamente, pero el listado paginado de facturas no tiene el formato esperado.",
-        undefined,
-        `Respuesta recibida: ${this.describeBody(body)}`,
-      );
-    }
-
-    return body;
+  /** GET /api/facturas/pendientes: PENDIENTE and RECHAZADA invoices. */
+  async obtenerFacturasPendientes(filtros: FacturaFiltrosDTO): Promise<FacturaVentaPaginaDTO> {
+    return this.obtenerPaginaFacturas(`${this.baseUrl}/pendientes`, filtros, false);
   }
 
   async obtenerPuntosVenta(): Promise<PuntoVentaDTO[]> {
@@ -101,27 +91,72 @@ export class FacturaService {
     })) as FacturaReporteDTO;
   }
 
-  /**
-   * The current API has no status-only route. Its PUT requires a complete
-  * FacturaRequestDTO, while GET does not provide the relation IDs needed to
-  * safely construct that request.
-   */
-  async actualizarEstado(
-    _id: number,
-    _estado: string,
-    _observaciones?: string,
-  ): Promise<FacturaReporteDTO> {
-    throw new FacturaServiceError(
-      "No se puede actualizar solo el estado: el backend no expone un endpoint específico para esa operación.",
-      undefined,
-      "El backend solo ofrece PUT /api/facturas/{id} con FacturaRequestDTO completo. Aunque el GET incluye el ID interno de la factura, no incluye los IDs de cliente, condición de IVA, punto de venta y moneda necesarios para construir ese PUT sin perder datos. Hace falta un endpoint PATCH/PUT específico para estado o ampliar el DTO de lectura con esos datos.",
-    );
+  /** PUT /api/facturas/{id}: full invoice update (PENDIENTE or RECHAZADA only). */
+  async actualizarFactura(id: number, factura: FacturaRequestDTO): Promise<FacturaReporteDTO> {
+    return (await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(factura),
+    })) as FacturaReporteDTO;
   }
 
-  async eliminarFactura(id: number): Promise<void> {
+  /** DELETE /api/facturas/{id}: logical annulment (the server marks ANULADA_LOCAL). */
+  async anularFactura(id: number): Promise<void> {
     await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
       method: "DELETE",
     });
+  }
+
+  /** POST /api/facturas/envios/arca: processes the selected invoices in ARCA. */
+  async enviarFacturasAArca(ids: number[]): Promise<EnvioArcaProcesoDTO> {
+    if (ids.length === 0) {
+      throw new FacturaServiceError("No hay facturas pendientes para enviar a ARCA.");
+    }
+    return (await this.request(`${this.baseUrl}/envios/arca`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    })) as EnvioArcaProcesoDTO;
+  }
+
+  /** GET /api/facturas/{id}/pdf: authorized-invoice PDF. */
+  async descargarPdfFactura(id: number): Promise<PdfDescargaDTO> {
+    return this.requestPdf(
+      `${this.baseUrl}/${encodeURIComponent(String(id))}/pdf`,
+      `factura-${id}.pdf`,
+    );
+  }
+
+  /** GET /api/facturas/pdf: complete invoice report (the backend accepts no filters). */
+  async descargarPdfListado(): Promise<PdfDescargaDTO> {
+    return this.requestPdf(`${this.baseUrl}/pdf`, "facturas.pdf");
+  }
+
+  private async obtenerPaginaFacturas(
+    urlBase: string,
+    filtros: FacturaFiltrosDTO,
+    incluirCondicionIva: boolean,
+  ): Promise<FacturaVentaPaginaDTO> {
+    const url = new URL(urlBase);
+    this.agregarFiltro(url, "numeroFactura", filtros.numeroFactura);
+    this.agregarFiltro(url, "clienteDenominacion", filtros.clienteDenominacion);
+    if (incluirCondicionIva) {
+      this.agregarFiltro(url, "condicionIva", filtros.condicionIva);
+    }
+    this.agregarFiltro(url, "fechaDesde", filtros.fechaDesde, true);
+    this.agregarFiltro(url, "fechaHasta", filtros.fechaHasta, true);
+    this.agregarFiltro(url, "page", filtros.page);
+
+    const body: unknown = await this.request(url.toString(), { method: "GET" });
+    if (!this.esPaginaFacturas(body)) {
+      throw new FacturaServiceError(
+        "La API respondió correctamente, pero el listado paginado de facturas no tiene el formato esperado.",
+        undefined,
+        `Respuesta recibida: ${this.describeBody(body)}`,
+      );
+    }
+
+    return body;
   }
 
   private async obtenerLista<T>(url: string, descripcion: string): Promise<T[]> {
@@ -275,6 +310,91 @@ export class FacturaService {
         text,
         { cause },
       );
+    }
+  }
+
+  private async requestPdf(url: string, fallbackFilename: string): Promise<PdfDescargaDTO> {
+    const method = "GET";
+    const route = this.routeWithoutValues(url);
+    let response: Response;
+    try {
+      response = await fetch(url, { method });
+    } catch (cause) {
+      const diagnostic = cause instanceof Error ? cause.message : String(cause);
+      this.emitTrace({ method, route, status: null, result: "error", message: diagnostic });
+      throw new FacturaServiceError(
+        "No fue posible conectar con el servicio de facturas para generar el PDF.",
+        undefined,
+        diagnostic,
+        { cause },
+      );
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const diagnostic = text ? this.mensajeError(text) : response.statusText || "Sin cuerpo de error";
+      this.emitTrace({ method, route, status: response.status, result: "error", message: diagnostic });
+      throw new FacturaServiceError(
+        `No se pudo generar el PDF (HTTP ${response.status} ${response.statusText}). ${diagnostic}`,
+        response.status,
+        text || response.statusText || "Respuesta de error vacía",
+      );
+    }
+
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (!contentType.toLowerCase().includes("application/pdf")) {
+      const diagnostic = `Content-Type recibido: ${contentType || "no informado"}`;
+      this.emitTrace({ method, route, status: response.status, result: "error", message: diagnostic });
+      throw new FacturaServiceError(
+        "El backend respondió correctamente, pero no devolvió un archivo PDF.",
+        response.status,
+        diagnostic,
+      );
+    }
+
+    let blob: Blob;
+    try {
+      blob = await response.blob();
+    } catch (cause) {
+      const diagnostic = cause instanceof Error ? cause.message : String(cause);
+      this.emitTrace({ method, route, status: response.status, result: "error", message: diagnostic });
+      throw new FacturaServiceError(
+        "El PDF se recibió, pero no pudo leerse como archivo.",
+        response.status,
+        diagnostic,
+        { cause },
+      );
+    }
+    if (blob.size === 0) {
+      const diagnostic = "El PDF recibido está vacío.";
+      this.emitTrace({ method, route, status: response.status, result: "error", message: diagnostic });
+      throw new FacturaServiceError(
+        "El backend devolvió un PDF vacío. No se descargó ningún archivo.",
+        response.status,
+        diagnostic,
+      );
+    }
+
+    const filename = this.nombreArchivo(response.headers.get("Content-Disposition")) ?? fallbackFilename;
+    this.emitTrace({
+      method,
+      route,
+      status: response.status,
+      result: "success",
+      message: `PDF recibido (${blob.size} bytes).`,
+    });
+    return { blob, filename };
+  }
+
+  private nombreArchivo(disposition: string | null): string | null {
+    if (!disposition) return null;
+    const match = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(disposition);
+    const nombre = match?.[1]?.trim();
+    if (!nombre) return null;
+    try {
+      return decodeURIComponent(nombre);
+    } catch {
+      return nombre;
     }
   }
 
