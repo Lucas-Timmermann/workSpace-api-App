@@ -1,5 +1,4 @@
 import type { EnvioArcaProcesoDTO, FacturaFiltrosDTO, FacturaReporteDTO, FacturaRequestDTO, FacturaVentaPaginaDTO, CatalogoDenominacionDTO, PdfDescargaDTO, PuntoVentaDTO, ListaPrecioArticuloDTO } from "../models/factura.dto.js";
-/** The backend's single invoice API base URL for local development. */
 export declare const FACTURAS_API_BASE_URL = "http://localhost:8080/api/facturas";
 export interface FacturaHttpTrace {
     method: string;
@@ -14,7 +13,6 @@ export declare class FacturaServiceError extends Error {
     readonly diagnostic?: string | undefined;
     constructor(message: string, status?: number | undefined, diagnostic?: string | undefined, options?: ErrorOptions);
 }
-/** HTTP client for the existing Spring Boot invoice endpoints. */
 export declare class FacturaService {
     private readonly baseUrl;
     private traceListener?;
@@ -30,15 +28,10 @@ export declare class FacturaService {
     obtenerListasPrecio(): Promise<CatalogoDenominacionDTO[]>;
     obtenerArticulosDeLista(listaPrecioId: number): Promise<ListaPrecioArticuloDTO[]>;
     crearFactura(factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;
-    /** PUT /api/facturas/{id}: full invoice update (PENDIENTE or RECHAZADA only). */
     actualizarFactura(id: number, factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;
-    /** DELETE /api/facturas/{id}: logical annulment (the server marks ANULADA_LOCAL). */
     anularFactura(id: number): Promise<void>;
-    /** POST /api/facturas/envios/arca: processes the selected invoices in ARCA. */
     enviarFacturasAArca(ids: number[]): Promise<EnvioArcaProcesoDTO>;
-    /** GET /api/facturas/{id}/pdf: authorized-invoice PDF. */
     descargarPdfFactura(id: number): Promise<PdfDescargaDTO>;
-    /** GET /api/facturas/pdf: complete invoice report (the backend accepts no filters). */
     descargarPdfListado(): Promise<PdfDescargaDTO>;
     private obtenerPaginaFacturas;
     private obtenerLista;
@@ -54,5 +47,6 @@ export declare class FacturaService {
     private describeBody;
     private routeWithoutValues;
     private emitTrace;
+    listarFacturasAutorizadas(): Promise<FacturaReporteDTO[]>;
 }
 //# sourceMappingURL=factura.service.d.ts.map

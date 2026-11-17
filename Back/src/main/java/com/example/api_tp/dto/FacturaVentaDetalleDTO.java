@@ -17,4 +17,8 @@ public class FacturaVentaDetalleDTO {
     private double importeNeto;
     private double importeIva;
     private double importeSubtotal;
+    private Long articuloId;
+    private Long listaPrecioId;
+    private Long listaPrecioArticuloId;
+    private String rubro;
 }

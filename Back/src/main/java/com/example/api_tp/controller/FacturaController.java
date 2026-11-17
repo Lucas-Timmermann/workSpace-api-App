@@ -94,16 +94,13 @@ public class FacturaController {
                 numeroFactura, clienteDenominacion, fechaDesde, fechaHasta, pagina));
     }
 
-    @GetMapping("/autorizadas")
-    public ResponseEntity<FacturaVentaPaginaDTO> listarAutorizadas(
-            @RequestParam(name = "numeroFactura", required = false) Long numeroFactura,
-            @RequestParam(name = "clienteDenominacion", required = false) String clienteDenominacion,
-            @RequestParam(name = "fechaDesde", required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate fechaDesde,
-            @RequestParam(name = "fechaHasta", required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate fechaHasta,
-            @RequestParam(name = "page", defaultValue = "0") int pagina) {
-        return ResponseEntity.ok(facturaService.listarAutorizadas(
-                numeroFactura, clienteDenominacion, fechaDesde, fechaHasta, pagina));
+    @GetMapping("/autorizadas") 
+    public ResponseEntity<List<FacturaReporteDTO>> listarAutorizadas(
+        @RequestParam(required = false) Long numero,
+        @RequestParam(required = false) String cliente) {
+    return ResponseEntity.ok(facturaService.listarAutorizadas(numero, cliente));
     }
+
 
     @GetMapping("/{id}")
     public ResponseEntity<FacturaReporteDTO> consultarPorId(@PathVariable Long id) {
@@ -140,5 +137,6 @@ public class FacturaController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"factura-" + id + ".pdf\"")
                 .contentLength(pdf.length)
                 .body(pdf);
-    }
+    }    
+
 }

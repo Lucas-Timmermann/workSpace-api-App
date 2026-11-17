@@ -28,7 +28,6 @@
           <button id="retry-catalogs" class="button button-secondary button-small" type="button" hidden>Reintentar catálogos</button>
         </div>
         <div id="action-notice" class="notice notice-info" role="status">
-          La anulación es lógica: la factura queda ANULADA_LOCAL. Las facturas autorizadas por ARCA no pueden anularse desde esta interfaz.
         </div>
 
         <section class="panel filter-panel" aria-labelledby="filters-title">
@@ -83,13 +82,14 @@
                   <th>Cliente</th>
                   <th>Condición IVA</th>
                   <th>Punto de Venta</th>
+                  <th>Estado</th>
                   <th class="numeric">Importe Total</th>
                   <th class="numeric">Ítems</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody id="invoice-rows">
-                <tr><td class="table-message" colspan="8">Cargando facturas…</td></tr>
+                <tr><td class="table-message" colspan="9">Cargando facturas…</td></tr>
               </tbody>
             </table>
           </div>
@@ -124,7 +124,7 @@
             <div><p class="eyebrow">Comprobantes</p><h2 id="pdf-explorer-title">Imprimir PDF</h2></div>
             <button id="close-pdf-explorer" class="button button-secondary button-small" type="button" aria-label="Cerrar explorador">Cerrar</button>
           </div>
-          <p class="muted">Elige qué documento generar. Los archivos los produce el backend.</p>
+          <p class="muted">Elige qué documento generar.</p>
           <div class="pdf-options">
             <label class="pdf-option">
               <input type="radio" name="pdf-target" value="individual" checked />
@@ -135,7 +135,7 @@
               <input type="radio" name="pdf-target" value="listado" />
               <span>Listado completo de facturas</span>
             </label>
-            <p class="muted pdf-note">El selector muestra las facturas de la página actual del listado. Solo las facturas AUTORIZADA tienen comprobante individual. El reporte general incluye todas las facturas y el backend no admite filtros para ese PDF.</p>
+            
           </div>
           <p id="pdf-explorer-message" class="muted" role="status" aria-live="polite"></p>
           <div class="article-dialog-actions">

@@ -139,7 +139,7 @@ function renderListMessage(message, isError = false) {
     const td = document.createElement("td");
     td.textContent = message;
     td.className = `table-message${isError ? " table-error" : ""}`;
-    td.colSpan = 8;
+    td.colSpan = 9;
     tr.append(td);
     rows.append(tr);
     resultsCount.textContent = isError ? "No se pudo completar la búsqueda" : "—";
@@ -210,6 +210,7 @@ function renderInvoiceList() {
         appendCell(row, invoice.clienteDenominacion);
         appendCell(row, invoice.condicionIva);
         appendCell(row, invoice.puntoVentaDescripcion);
+        appendCell(row, invoice.estado);
         appendCell(row, money(invoice.importeTotal), "numeric");
         appendCell(row, String(invoice.detalles.length), "numeric");
         const actions = document.createElement("td");
@@ -239,7 +240,7 @@ function renderInvoiceList() {
             const detailRow = document.createElement("tr");
             detailRow.className = "expanded-detail-row";
             const detailCell = document.createElement("td");
-            detailCell.colSpan = 8;
+            detailCell.colSpan = 9;
             const detailsTable = document.createElement("table");
             detailsTable.className = "expanded-details";
             const heading = document.createElement("tr");
@@ -503,6 +504,7 @@ function confirmArticles() {
             precioUnitario: String(article.precioVenta),
             porcentajeBonificacion: "0",
             porcentajeIva: "0",
+            listaPrecioId: select("listaPrecioId").value,
         });
     }
     if (nuevos.length === 0)
@@ -620,7 +622,22 @@ function showForm(invoice) {
         setSelectValue("clienteId", invoice.clienteId);
         setSelectValue("condicionIvaId", invoice.condicionIvaId);
         setSelectValue("tipoMonedaId", invoice.tipoMonedaId);
-        setFormMessage("Se cargaron los datos de la factura. El backend no devuelve los IDs de artículo y lista de precio de los ítems existentes, por lo que debés volver a agregarlos con «+ Agregar ítem» para guardar la edición.", "warning");
+        const primerDetalle = invoice.detalles?.[0];
+        if (primerDetalle?.listaPrecioId) {
+            selectedListaPrecioId = String(primerDetalle.listaPrecioId);
+            setSelectValue("listaPrecioId", primerDetalle.listaPrecioId);
+        }
+        details = (invoice.detalles ?? []).map((det) => ({
+            listaPrecioId: det.listaPrecioId != null ? String(det.listaPrecioId) : selectedListaPrecioId,
+            listaPrecioArticuloId: det.listaPrecioArticuloId != null ? String(det.listaPrecioArticuloId) : "",
+            articuloId: det.articuloId != null ? String(det.articuloId) : "",
+            descripcion: det.descripcion ?? "",
+            rubro: det.rubro ?? "",
+            cantidad: String(det.cantidad ?? 1),
+            precioUnitario: String(det.precioUnitario ?? 0),
+            porcentajeBonificacion: String(det.porcentajeBonificacion ?? 0),
+            porcentajeIva: String(det.porcentajeIva ?? 0),
+        }));
     }
     renderDetailRows();
     listView.hidden = true;
@@ -715,8 +732,6 @@ function collectRequest() {
         condicionIvaId,
         puntoVentaId,
         tipoMonedaId,
-        // The field is no longer shown; the server still requires it. Preserve the
-        // existing value when editing, otherwise register the invoice as unpaid.
         importeCobrado: editingInvoiceId === null ? 0 : editingImporteCobrado,
         detalles: requestDetails,
     };
@@ -932,30 +947,37 @@ function updatePdfControls() {
     pdfInvoiceSelect.disabled = !individual;
     printPdfButton.disabled = pdfPrinting || (individual && !pdfInvoiceSelect.value);
 }
-function openPdfExplorer() {
-    if (loading) {
-        setActionNotice("Esperá a que termine de cargarse el listado para elegir una factura.", "warning");
-        return;
-    }
-    pdfMessage.textContent = "";
+async function openPdfExplorer() {
+    pdfMessage.textContent = "Cargando facturas disponibles…";
     pdfInvoiceSelect.replaceChildren();
-    for (const invoice of invoices) {
-        pdfInvoiceSelect.add(new Option(`${invoice.numeroFactura} — ${invoice.clienteDenominacion} — ${invoice.estado}`, String(invoice.id)));
-    }
-    if (invoices.length === 0) {
-        pdfMessage.textContent = "No hay facturas en la página actual. Podés imprimir el listado completo.";
-    }
-    const individualRadio = document.querySelector('input[name="pdf-target"][value="individual"]');
-    const listadoRadio = document.querySelector('input[name="pdf-target"][value="listado"]');
-    if (invoices.length === 0 && listadoRadio) {
-        listadoRadio.checked = true;
-    }
-    else if (individualRadio) {
-        individualRadio.checked = true;
-    }
-    updatePdfControls();
+    pdfInvoiceSelect.disabled = true;
+    printPdfButton.disabled = true;
     pdfExplorer.showModal();
     requiredElement("close-pdf-explorer").focus();
+    try {
+        const pdfInvoices = await service.listarFacturasAutorizadas();
+        pdfMessage.textContent = "";
+        for (const invoice of pdfInvoices) {
+            pdfInvoiceSelect.add(new Option(`${invoice.numeroFactura} — ${invoice.clienteDenominacion} — ${invoice.estado}`, String(invoice.id)));
+        }
+        if (pdfInvoices.length === 0) {
+            pdfMessage.textContent = "No hay facturas en la página actual. Podés imprimir el listado completo.";
+        }
+        const individualRadio = document.querySelector('input[name="pdf-target"][value="individual"]');
+        const listadoRadio = document.querySelector('input[name="pdf-target"][value="listado"]');
+        if (pdfInvoices.length === 0 && listadoRadio) {
+            listadoRadio.checked = true;
+        }
+        else if (individualRadio) {
+            individualRadio.checked = true;
+        }
+    }
+    catch (error) {
+        pdfMessage.textContent = `Error al cargar las facturas: ${errorMessage(error)}`;
+    }
+    finally {
+        updatePdfControls();
+    }
 }
 function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);

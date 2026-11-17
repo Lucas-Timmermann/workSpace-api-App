@@ -10,7 +10,7 @@ import type {
   ListaPrecioArticuloDTO,
 } from "../models/factura.dto.js";
 
-/** The backend's single invoice API base URL for local development. */
+
 export const FACTURAS_API_BASE_URL = "http://localhost:8080/api/facturas";
 
 export interface FacturaHttpTrace {
@@ -34,7 +34,7 @@ export class FacturaServiceError extends Error {
   }
 }
 
-/** HTTP client for the existing Spring Boot invoice endpoints. */
+
 export class FacturaService {
   private traceListener?: (trace: FacturaHttpTrace) => void;
 
@@ -91,7 +91,7 @@ export class FacturaService {
     })) as FacturaReporteDTO;
   }
 
-  /** PUT /api/facturas/{id}: full invoice update (PENDIENTE or RECHAZADA only). */
+
   async actualizarFactura(id: number, factura: FacturaRequestDTO): Promise<FacturaReporteDTO> {
     return (await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
       method: "PUT",
@@ -100,14 +100,14 @@ export class FacturaService {
     })) as FacturaReporteDTO;
   }
 
-  /** DELETE /api/facturas/{id}: logical annulment (the server marks ANULADA_LOCAL). */
+  
   async anularFactura(id: number): Promise<void> {
     await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
       method: "DELETE",
     });
   }
 
-  /** POST /api/facturas/envios/arca: processes the selected invoices in ARCA. */
+ 
   async enviarFacturasAArca(ids: number[]): Promise<EnvioArcaProcesoDTO> {
     if (ids.length === 0) {
       throw new FacturaServiceError("No hay facturas pendientes para enviar a ARCA.");
@@ -119,7 +119,7 @@ export class FacturaService {
     })) as EnvioArcaProcesoDTO;
   }
 
-  /** GET /api/facturas/{id}/pdf: authorized-invoice PDF. */
+  
   async descargarPdfFactura(id: number): Promise<PdfDescargaDTO> {
     return this.requestPdf(
       `${this.baseUrl}/${encodeURIComponent(String(id))}/pdf`,
@@ -127,7 +127,7 @@ export class FacturaService {
     );
   }
 
-  /** GET /api/facturas/pdf: complete invoice report (the backend accepts no filters). */
+  
   async descargarPdfListado(): Promise<PdfDescargaDTO> {
     return this.requestPdf(`${this.baseUrl}/pdf`, "facturas.pdf");
   }
@@ -411,7 +411,7 @@ export class FacturaService {
         }
       }
     } catch {
-      // Non-JSON error bodies (for example, plain text) remain useful diagnostics.
+
     }
 
     return text;
@@ -434,4 +434,24 @@ export class FacturaService {
   private emitTrace(trace: Omit<FacturaHttpTrace, "timestamp">): void {
     this.traceListener?.({ ...trace, timestamp: new Date().toISOString() });
   }
+
+  async listarFacturasAutorizadas(): Promise<FacturaReporteDTO[]> {
+    const body: unknown = await this.request(`${this.baseUrl}/autorizadas`, {
+        method: "GET",
+    });
+
+    if (!Array.isArray(body)) {
+        throw new FacturaServiceError(
+            "La API respondió correctamente, pero el listado de facturas autorizadas no tiene el formato esperado.",
+            undefined,
+            `Respuesta recibida: ${this.describeBody(body)}`,
+        );
+    }
+
+    return body as FacturaReporteDTO[];
+  }
+
+
+
+
 }

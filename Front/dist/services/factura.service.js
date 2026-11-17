@@ -1,4 +1,3 @@
-/** The backend's single invoice API base URL for local development. */
 export const FACTURAS_API_BASE_URL = "http://localhost:8080/api/facturas";
 export class FacturaServiceError extends Error {
     status;
@@ -10,7 +9,6 @@ export class FacturaServiceError extends Error {
         this.name = "FacturaServiceError";
     }
 }
-/** HTTP client for the existing Spring Boot invoice endpoints. */
 export class FacturaService {
     baseUrl;
     traceListener;
@@ -55,7 +53,6 @@ export class FacturaService {
             body: JSON.stringify(factura),
         }));
     }
-    /** PUT /api/facturas/{id}: full invoice update (PENDIENTE or RECHAZADA only). */
     async actualizarFactura(id, factura) {
         return (await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
             method: "PUT",
@@ -63,13 +60,11 @@ export class FacturaService {
             body: JSON.stringify(factura),
         }));
     }
-    /** DELETE /api/facturas/{id}: logical annulment (the server marks ANULADA_LOCAL). */
     async anularFactura(id) {
         await this.request(`${this.baseUrl}/${encodeURIComponent(String(id))}`, {
             method: "DELETE",
         });
     }
-    /** POST /api/facturas/envios/arca: processes the selected invoices in ARCA. */
     async enviarFacturasAArca(ids) {
         if (ids.length === 0) {
             throw new FacturaServiceError("No hay facturas pendientes para enviar a ARCA.");
@@ -80,11 +75,9 @@ export class FacturaService {
             body: JSON.stringify({ ids }),
         }));
     }
-    /** GET /api/facturas/{id}/pdf: authorized-invoice PDF. */
     async descargarPdfFactura(id) {
         return this.requestPdf(`${this.baseUrl}/${encodeURIComponent(String(id))}/pdf`, `factura-${id}.pdf`);
     }
-    /** GET /api/facturas/pdf: complete invoice report (the backend accepts no filters). */
     async descargarPdfListado() {
         return this.requestPdf(`${this.baseUrl}/pdf`, "facturas.pdf");
     }
@@ -294,7 +287,6 @@ export class FacturaService {
             }
         }
         catch {
-            // Non-JSON error bodies (for example, plain text) remain useful diagnostics.
         }
         return text;
     }
@@ -313,6 +305,15 @@ export class FacturaService {
     }
     emitTrace(trace) {
         this.traceListener?.({ ...trace, timestamp: new Date().toISOString() });
+    }
+    async listarFacturasAutorizadas() {
+        const body = await this.request(`${this.baseUrl}/autorizadas`, {
+            method: "GET",
+        });
+        if (!Array.isArray(body)) {
+            throw new FacturaServiceError("La API respondió correctamente, pero el listado de facturas autorizadas no tiene el formato esperado.", undefined, `Respuesta recibida: ${this.describeBody(body)}`);
+        }
+        return body;
     }
 }
 //# sourceMappingURL=factura.service.js.map

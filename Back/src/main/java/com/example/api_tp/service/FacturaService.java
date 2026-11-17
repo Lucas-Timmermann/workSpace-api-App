@@ -276,11 +276,36 @@ public class FacturaService {
         return listar(ESTADOS_PENDIENTES, numero, cliente, null, fechaDesde, fechaHasta, pagina);
     }
 
-    @Transactional(readOnly = true)
-    public FacturaVentaPaginaDTO listarAutorizadas(Long numero, String cliente, LocalDate fechaDesde,
-            LocalDate fechaHasta, int pagina) {
-        return listar(ESTADOS_AUTORIZADAS, numero, cliente, null, fechaDesde, fechaHasta, pagina);
+   @Transactional(readOnly = true)
+    public List<FacturaReporteDTO> listarAutorizadas(Long numero, String cliente) {
+    
+        Pageable sinPaginar = Pageable.unpaged(
+                Sort.by(FacturaVenta::getNumero).ascending().and(Sort.by(FacturaVenta::getId).ascending())
+        );
+
+        
+        Page<FacturaVenta> resultado = facturaRepository.filtrarPorEstados(
+                ESTADOS_AUTORIZADAS,
+                numero,
+                normalizarFiltro(cliente),
+                null, 
+                null, 
+                null, 
+                sinPaginar
+        );
+
+        
+        List<Long> ids = resultado.getContent().stream().map(FacturaVenta::getId).toList();
+        List<FacturaVenta> conDetalles = ids.isEmpty() ? List.of() : facturaRepository.buscarConDetallesPorIds(ids);
+        
+        Map<Long, FacturaVenta> porId = conDetalles.stream()
+                .collect(Collectors.toMap(FacturaVenta::getId, Function.identity()));
+
+        return resultado.getContent().stream()
+                .map(f -> aFacturaReporteDTO(porId.getOrDefault(f.getId(), f)))
+                .toList();
     }
+
 
     private FacturaVentaPaginaDTO listar(List<String> estados, Long numero, String cliente, String condicionIva,
             LocalDate fechaDesde, LocalDate fechaHasta, int pagina) {
@@ -888,7 +913,9 @@ public class FacturaService {
                         detalle.getId(), detalle.getDescripcion(), detalle.getCantidad(),
                         detalle.getPrecioUnitario(), detalle.getPorcentajeBonificacion(),
                         detalle.getPorcentajeIva(), detalle.getImporteNeto(),
-                        detalle.getImporteIva(), detalle.getImporteSubtotal()))
+                        detalle.getImporteIva(), detalle.getImporteSubtotal(), 
+                        detalle.getListaPrecioArticulo().getArticulo().getId(), detalle.getListaPrecioArticulo().getListaPrecio().getId(), 
+                        detalle.getListaPrecioArticulo().getId(), detalle.getListaPrecioArticulo().getArticulo().getRubro().getDenominacion()))
                 .toList());
         dto.setCantidadItems(dto.getDetalles().size());
         return dto;

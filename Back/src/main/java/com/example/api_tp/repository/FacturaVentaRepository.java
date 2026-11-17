@@ -43,7 +43,9 @@ public interface FacturaVentaRepository extends JpaRepository<FacturaVenta, Long
 			join fetch f.tipoMoneda
 			join fetch f.puntoVenta
 			left join fetch f.detalles d
-			left join fetch d.listaPrecioArticulo
+			left join fetch d.listaPrecioArticulo lpa
+			left join fetch lpa.articulo
+			where f.estado = 'AUTORIZADA'
 			order by f.numero, f.id
 			""")
 	List<FacturaVenta> buscarTodasConDetallesParaPdf();
