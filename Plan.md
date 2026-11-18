@@ -378,8 +378,8 @@ COMMIT;
 - [x] F0: backup, verificación ARCA y 6 facturas reparadas; 0 `EN_PROCESO_ENVIO`.
 - [x] F1: columnas ampliadas, truncado central, lote resiliente, compensación, log de causa.
 - [x] F2: catálogos de condición IVA y moneda implementados y validados; datos de moneda corregidos.
-- [ ] F3: INCIERTO conciliable y numeración no reutilizada.
-- [ ] T1–T10 implementados y verdes.
+- [x] F3: INCIERTO conciliable y numeración no reutilizada.
+- [x] T1–T10 implementados y verdes.
 - [ ] `mvn -f Back/pom.xml clean test` verde.
 - [ ] Una emisión controlada en homologación con CAE (o bloqueo externo documentado).
 - [ ] `context.md` y `Plan.md` actualizados con el resultado.

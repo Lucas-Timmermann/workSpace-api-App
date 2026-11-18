@@ -224,6 +224,51 @@ class FacturaCicloVidaArcaIntegrationTests {
     }
 
     @Test
+    void reenviaRechazadaConNumeracionNueva() throws Exception {
+        Fixture fx = fixture();
+        long id = crearPendiente(fx, null);
+        stubCatalogos();
+        when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 20, List.of(), List.of()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 21, List.of(), List.of()));
+
+        FeCaeResultado rechazo = new FeCaeResultado();
+        rechazo.setResultadoGlobal("R");
+        FeCaeResultado.FeCaeDetalleResultado detRechazo = new FeCaeResultado.FeCaeDetalleResultado();
+        detRechazo.setResultado("R");
+        detRechazo.setCbteDesde(21L);
+        detRechazo.setCbteHasta(21L);
+        rechazo.getDetalles().add(detRechazo);
+        when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class)))
+                .thenReturn(rechazo, aprobada(22L));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rechazadas").value(1));
+        assertEquals(21L, facturaVentaRepository.findById(id).orElseThrow().getNumeroFiscal());
+
+        // editar la rechazada la devuelve a PENDIENTE y limpia el número fiscal consumido
+        mockMvc.perform(put("/api/facturas/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(req(fx))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("PENDIENTE"));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.autorizadas").value(1));
+
+        ArgumentCaptor<FeCaeSolicitud> captor = ArgumentCaptor.forClass(FeCaeSolicitud.class);
+        verify(afipWsfeClient, times(2)).feCaeSolicitar(captor.capture());
+        assertEquals(22L, captor.getAllValues().get(1).getComprobantes().get(0).getCbteDesde());
+        assertEquals(22L, facturaVentaRepository.findById(id).orElseThrow().getNumeroFiscal());
+    }
+
+    @Test
     void conciliaResultadoInciertoConsultandoArca() throws Exception {
         Fixture fx = fixture();
         long id = crearPendiente(fx, null);
