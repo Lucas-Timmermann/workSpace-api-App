@@ -62,9 +62,9 @@ public class DatosInicialesRunner implements CommandLineRunner {
 
     private static final List<MonedaDef> MONEDAS = List.of(
             new MonedaDef("PES", "Peso Argentino", "$"),
-            new MonedaDef("USD", "Dólar Estadounidense", "US$"),
-            new MonedaDef("EUR", "Euro", "€"),
-            new MonedaDef("BRL", "Real Brasileño", "R$"));
+            new MonedaDef("DOL", "Dólar Estadounidense", "US$"),
+            new MonedaDef("060", "Euro", "€"),
+            new MonedaDef("012", "Real Brasileño", "R$"));
 
     private static final List<ClienteDef> CLIENTES = List.of(
             new ClienteDef("30712345671", "Almacén Don Pedro S.A.",
@@ -231,7 +231,7 @@ public class DatosInicialesRunner implements CommandLineRunner {
         return request;
     }
 
-    /** Una de cada cinco facturas es de Consumidor Final; el resto se elige al azar. */
+
     private static CondicionIva condicionAleatoria(List<CondicionIva> condiciones, Random random, int indice) {
         if (indice % 5 == 0) {
             return condiciones.stream()

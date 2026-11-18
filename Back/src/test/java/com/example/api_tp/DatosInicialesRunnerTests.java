@@ -81,7 +81,7 @@ class DatosInicialesRunnerTests {
         assertTrue(condicionIvaRepository.findAll().stream()
                 .anyMatch(condicion -> condicion.getCodigoAfip() == 5
                         && "Consumidor Final".equals(condicion.getDenominacion())));
-        assertEquals(Set.of("PES", "USD", "EUR", "BRL"), tipoMonedaRepository.findAll().stream()
+        assertEquals(Set.of("PES", "DOL", "060", "012"), tipoMonedaRepository.findAll().stream()
                 .map(TipoMoneda::getCodigoAfip)
                 .collect(Collectors.toSet()));
         assertTrue(tipoMonedaRepository.findAll().stream()

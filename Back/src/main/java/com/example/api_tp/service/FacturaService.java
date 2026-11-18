@@ -371,13 +371,17 @@ public class FacturaService {
     public EnvioArcaProcesoDTO enviarFacturasAArca(EnvioArcaRequestDTO request) {
         List<Long> idsObjetivo = resolverIdsParaEnvio(request);
         String procesoId = "ENV-" + UUID.randomUUID();
-        List<ParametroArca> tiposIva = consultarCatalogo(arcaFacturaElectronicaService::obtenerTiposIva);
-        List<PuntoVentaArca> puntosVenta = consultarCatalogo(arcaFacturaElectronicaService::obtenerPuntosVenta);
+        CatalogosArca catalogos = new CatalogosArca(
+                consultarCatalogo(arcaFacturaElectronicaService::obtenerTiposIva),
+                consultarCatalogo(arcaFacturaElectronicaService::obtenerPuntosVenta),
+                consultarCatalogo(() -> arcaFacturaElectronicaService.obtenerCondicionesIvaReceptor("A")),
+                consultarCatalogo(() -> arcaFacturaElectronicaService.obtenerCondicionesIvaReceptor("B")),
+                consultarCatalogo(arcaFacturaElectronicaService::obtenerTiposMonedas));
         EnvioArcaProcesoDTO resumen = new EnvioArcaProcesoDTO();
         resumen.setEnvioId(procesoId);
         for (Long id : idsObjetivo) {
             acumularResumen(resumen,
-                    procesarEnvioFacturaIndividual(id, procesoId, tiposIva, puntosVenta));
+                    procesarEnvioFacturaIndividual(id, procesoId, catalogos));
         }
         return resumen;
     }
@@ -414,12 +418,12 @@ public class FacturaService {
     }
 
     private EnvioArcaItemResultadoDTO procesarEnvioFacturaIndividual(Long facturaId, String procesoId,
-            List<ParametroArca> tiposIva, List<PuntoVentaArca> puntosVenta) {
+            CatalogosArca catalogos) {
    
         DatosEnvio datos;
         try {
             datos = transactionTemplate.execute(status ->
-                    prepararEnvio(facturaId, procesoId, tiposIva, puntosVenta));
+                    prepararEnvio(facturaId, procesoId, catalogos));
         } catch (ResponseStatusException ex) {
             return itemNoEnviado(facturaId, null, ex.getReason());
         } catch (Exception ex) {
@@ -435,11 +439,18 @@ public class FacturaService {
         } catch (RuntimeException ex) {
             String motivo = "No se pudo determinar la cotización de la moneda " + datos.moneda
                     + ": " + mensajeSeguro(ex);
-            transactionTemplate.executeWithoutResult(status -> {
-                FacturaVenta factura = facturaRepository.buscarPorIdParaActualizacion(datos.facturaId)
-                        .orElseThrow(() -> noEncontrada("Factura", datos.facturaId));
-                registrarIntentoNoEnviada(factura, procesoId, motivo);
-            });
+            try {
+                String motivoIntento = motivo;
+                transactionTemplate.executeWithoutResult(status -> {
+                    FacturaVenta factura = facturaRepository.buscarPorIdParaActualizacion(datos.facturaId)
+                            .orElseThrow(() -> noEncontrada("Factura", datos.facturaId));
+                    registrarIntentoNoEnviada(factura, procesoId, motivoIntento);
+                });
+            } catch (RuntimeException persistenciaEx) {
+                // un fallo al registrar el intento no debe cortar el lote
+                motivo = truncar(motivo + " | No se pudo registrar el intento: "
+                        + mensajeSeguro(persistenciaEx), 1000);
+            }
             return itemNoEnviado(facturaId, datos.numeroInterno, motivo);
         }
 
@@ -483,16 +494,20 @@ public class FacturaService {
 
       
             final ArcaEmisionResultado resultadoFinal = resultado;
-            return transactionTemplate.execute(status -> persistirResultado(
-                    datos.facturaId, datos.puntoVenta, datos.tipoComprobante, solicitud.numeroFiscal,
-                    resultadoFinal, procesoId));
+            try {
+                return transactionTemplate.execute(status -> persistirResultado(
+                        datos.facturaId, datos.puntoVenta, datos.tipoComprobante, solicitud.numeroFiscal,
+                        resultadoFinal, procesoId));
+            } catch (RuntimeException ex) {
+                // un fallo de persistencia no corta el lote ni deja la factura sin intento
+                return compensarFalloPersistencia(datos, solicitud.numeroFiscal, resultadoFinal, procesoId, ex);
+            }
         } finally {
             lockEmision.unlock();
         }
     }
 
-    private DatosEnvio prepararEnvio(Long facturaId, String procesoId, List<ParametroArca> tiposIva,
-            List<PuntoVentaArca> puntosVenta) {
+    private DatosEnvio prepararEnvio(Long facturaId, String procesoId, CatalogosArca catalogos) {
         FacturaVenta factura = facturaRepository.buscarPorIdParaActualizacion(facturaId)
                 .orElseThrow(() -> noEncontrada("Factura", facturaId));
         DatosEnvio datos = new DatosEnvio();
@@ -508,9 +523,12 @@ public class FacturaService {
         String errorValidacion;
         try {
             aplicarDatosFiscales(factura);
-            errorValidacion = validarDatosFiscalesParaEnvio(factura, tiposIva, puntosVenta);
+            aplicarCatalogosArca(factura, catalogos);
+            errorValidacion = validarDatosFiscalesParaEnvio(factura, catalogos);
         } catch (ResponseStatusException ex) {
             errorValidacion = ex.getReason();
+        } catch (RuntimeException ex) {
+            errorValidacion = mensajeSeguro(ex);
         }
         if (errorValidacion != null) {
             registrarIntentoNoEnviada(factura, procesoId, errorValidacion);
@@ -518,7 +536,7 @@ public class FacturaService {
             datos.itemNoEnviado = itemNoEnviado(factura.getId(), factura.getNumero(), errorValidacion);
             return datos;
         }
-        datos.tiposIva = tiposIva;
+        datos.tiposIva = catalogos.tiposIva();
         datos.puntoVenta = factura.getPuntoVenta().getNumero();
         datos.tipoComprobante = factura.getTipoComprobanteArca();
         datos.moneda = factura.getMonedaArca();
@@ -620,7 +638,7 @@ public class FacturaService {
                 factura.setMotivoRechazo(null);
                 factura.setFechaAutorizacionArca(ahora);
                 factura.setFechaResultadoArca(ahora);
-                factura.setObservaciones(combinarObs(factura.getObservaciones(), observaciones));
+                factura.setObservaciones(truncar(combinarObs(factura.getObservaciones(), observaciones), 1000));
                 registrarIntento(factura, procesoId, "APROBADA", puntoVenta, tipoComprobante, numeroComprobante,
                         resultado.getResultadoGlobal(), resultado.getResultadoDetalle(), resultado.getCae(),
                         resultado.getCaeFechaVencimiento(), observaciones, errores, eventos, resultado.getMensaje());
@@ -659,6 +677,39 @@ public class FacturaService {
                 resultado.getCaeFechaVencimiento(), factura.getNumeroFiscal());
     }
 
+    /** Compensación F1-T4: si el resultado no se pudo persistir, la factura queda conciliable. */
+    private EnvioArcaItemResultadoDTO compensarFalloPersistencia(DatosEnvio datos, Long numeroFiscal,
+            ArcaEmisionResultado resultado, String procesoId, RuntimeException causa) {
+        String motivo = truncar("No se pudo persistir el resultado ARCA: " + mensajeSeguro(causa), 1000);
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                FacturaVenta factura = facturaRepository.buscarPorIdParaActualizacion(datos.facturaId)
+                        .orElseThrow(() -> noEncontrada("Factura", datos.facturaId));
+                if (!EstadoFactura.EN_PROCESO_ENVIO.name().equals(factura.getEstado())) {
+                    return;
+                }
+                estadoMachine.validarTransicion(EstadoFactura.EN_PROCESO_ENVIO,
+                        EstadoFactura.RESULTADO_DESCONOCIDO);
+                Date ahora = new Date();
+                factura.setEstado(EstadoFactura.RESULTADO_DESCONOCIDO.name());
+                factura.setResultadoAfip("INCIERTO");
+                factura.setMotivoRechazo(motivo);
+                factura.setFechaResultadoArca(ahora);
+                factura.setFechaModificacion(ahora);
+                factura.setUsuarioModificacion(obtenerUsuarioAuditoria());
+                registrarIntento(factura, procesoId, "INCIERTO", datos.puntoVenta, datos.tipoComprobante,
+                        numeroFiscal, resultado.getResultadoGlobal(), resultado.getResultadoDetalle(),
+                        null, null, null, null, null, motivo);
+                facturaRepository.saveAndFlush(factura);
+            });
+            return new EnvioArcaItemResultadoDTO(datos.facturaId, datos.numeroInterno,
+                    EstadoFactura.RESULTADO_DESCONOCIDO.name(), "INCIERTO", motivo, null, null, numeroFiscal);
+        } catch (RuntimeException ex) {
+            return itemNoEnviado(datos.facturaId, datos.numeroInterno,
+                    truncar(motivo + " | Falló la compensación: " + mensajeSeguro(ex), 1000));
+        }
+    }
+
     private ArcaEmisionResultado resultadoInciertoTecnico(Exception ex) {
         ArcaEmisionResultado resultado = new ArcaEmisionResultado();
         resultado.setEstado(ArcaEmisionResultado.Estado.INCIERTO);
@@ -686,6 +737,17 @@ public class FacturaService {
         factura.setCondicionIvaReceptorArca(codigoAfipCondicionIva(factura.getCondicionIva()));
         factura.setMonedaArca(codigoAfipMoneda(factura.getTipoMoneda()));
  
+        factura.setCotizacionArca(esMonedaNacional(factura.getMonedaArca()) ? 1.0 : null);
+    }
+
+    /** F2: la condición IVA y la moneda se resuelven contra los catálogos reales de ARCA. */
+    private void aplicarCatalogosArca(FacturaVenta factura, CatalogosArca catalogos) {
+        List<ParametroArca> condiciones = factura.getTipoComprobanteArca() == TIPO_COMPROBANTE_FACTURA_A
+                ? catalogos.condicionesIvaA() : catalogos.condicionesIvaB();
+        factura.setCondicionIvaReceptorArca(ArcaFacturaElectronicaService
+                .resolverCondicionIvaReceptorId(factura.getCondicionIva(), condiciones));
+        factura.setMonedaArca(ArcaFacturaElectronicaService
+                .resolverMonId(factura.getTipoMoneda(), catalogos.monedas()));
         factura.setCotizacionArca(esMonedaNacional(factura.getMonedaArca()) ? 1.0 : null);
     }
 
@@ -756,8 +818,9 @@ public class FacturaService {
         return cotizacion.getMonCotiz();
     }
 
-    private String validarDatosFiscalesParaEnvio(FacturaVenta factura, List<ParametroArca> tiposIva,
-            List<PuntoVentaArca> puntosVenta) {
+    private String validarDatosFiscalesParaEnvio(FacturaVenta factura, CatalogosArca catalogos) {
+        List<ParametroArca> tiposIva = catalogos.tiposIva();
+        List<PuntoVentaArca> puntosVenta = catalogos.puntosVenta();
         if (factura.getTipoComprobanteArca() == null
                 || !Set.of(TIPO_COMPROBANTE_FACTURA_A, TIPO_COMPROBANTE_FACTURA_B)
                         .contains(factura.getTipoComprobanteArca())) {
@@ -787,6 +850,15 @@ public class FacturaService {
         if (factura.getMonedaArca() == null || factura.getMonedaArca().isBlank()) {
             return "Falta dato fiscal obligatorio: código AFIP de la moneda";
         }
+        if (!contieneId(catalogos.monedas(), factura.getMonedaArca())) {
+            return "La moneda " + factura.getMonedaArca() + " no existe en FEParamGetTiposMonedas";
+        }
+        List<ParametroArca> condiciones = factura.getTipoComprobanteArca() == TIPO_COMPROBANTE_FACTURA_A
+                ? catalogos.condicionesIvaA() : catalogos.condicionesIvaB();
+        if (!contieneId(condiciones, String.valueOf(factura.getCondicionIvaReceptorArca()))) {
+            return "La condición IVA del receptor " + factura.getCondicionIvaReceptorArca()
+                    + " no está admitida para el comprobante tipo " + factura.getTipoComprobanteArca();
+        }
         if (tiposIva == null || tiposIva.isEmpty()) {
             return "No se pudo consultar FEParamGetTiposIva para validar las alícuotas";
         }
@@ -799,6 +871,11 @@ public class FacturaService {
             }
         }
         return null;
+    }
+
+    private static boolean contieneId(List<ParametroArca> catalogo, String id) {
+        return catalogo != null && id != null && catalogo.stream()
+                .anyMatch(item -> item.getId() != null && id.equalsIgnoreCase(item.getId().trim()));
     }
 
     private static boolean esEmisionElectronica(String tipoEmision) {
@@ -819,10 +896,8 @@ public class FacturaService {
         datos.setCondicionIvaReceptorId(factura.getCondicionIvaReceptorArca());
         datos.setCbteDesde(numeroFiscal);
         datos.setCbteHasta(numeroFiscal);
-        if (datos.getMonId() == null || datos.getMonId().isBlank()) {
-            datos.setMonId(factura.getMonedaArca() != null ? factura.getMonedaArca()
-                    : factura.getTipoMoneda().getCodigoAfip());
-        }
+        // el Mon_Id enviado es el resuelto contra el catálogo, no el código crudo de la tabla
+        datos.setMonId(factura.getMonedaArca());
         datos.setMonCotiz(cotizacion);
     }
 
@@ -839,8 +914,8 @@ public class FacturaService {
                 .puntoVenta(puntoVenta)
                 .tipoComprobante(tipoComprobante)
                 .numeroComprobante(numeroComprobante)
-                .resultadoGeneral(resultadoGeneral)
-                .resultadoDetalle(resultadoDetalle)
+                .resultadoGeneral(truncar(resultadoGeneral, 255))
+                .resultadoDetalle(truncar(resultadoDetalle, 255))
                 .cae(cae)
                 .caeVencimiento(caeVencimiento)
                 .observaciones(truncar(observaciones, 2000))
@@ -1185,6 +1260,11 @@ public class FacturaService {
             case "INCIERTO", "ENVIADO" -> "INCIERTO";
             default -> "NO_ENVIADA";
         };
+    }
+
+    private record CatalogosArca(List<ParametroArca> tiposIva, List<PuntoVentaArca> puntosVenta,
+            List<ParametroArca> condicionesIvaA, List<ParametroArca> condicionesIvaB,
+            List<ParametroArca> monedas) {
     }
 
     private static final class DatosEnvio {

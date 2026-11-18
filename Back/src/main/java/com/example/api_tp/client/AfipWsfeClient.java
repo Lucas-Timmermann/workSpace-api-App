@@ -160,6 +160,11 @@ public class AfipWsfeClient {
         return feParamGetTipos("FEParamGetTiposMonedas");
     }
 
+    public List<ParametroArca> feParamGetCondicionIvaReceptor(String claseCmp) {
+        return feParamGetTipos("FEParamGetCondicionIvaReceptor",
+                StringUtils.hasText(claseCmp) ? tag("ar:ClaseCmp", claseCmp) : "");
+    }
+
     public List<PuntoVentaArca> feParamGetPtosVenta() {
         
         List<PuntoVentaArca> out = new ArrayList<>();
@@ -221,7 +226,11 @@ public class AfipWsfeClient {
     }
 
     private List<ParametroArca> feParamGetTipos(String operacion) {
-        Element result = invocarParamGet(operacion);
+        return feParamGetTipos(operacion, "");
+    }
+
+    private List<ParametroArca> feParamGetTipos(String operacion, String parametrosExtra) {
+        Element result = invocarParamGet(operacion, parametrosExtra);
         List<ParametroArca> out = new ArrayList<>();
         for (Element item : hijosElemento(primerElementoPorNombreLocal(result, "ResultGet"))) {
             out.add(new ParametroArca(textoPorNombreLocal(item, "Id"), textoPorNombreLocal(item, "Desc")));
@@ -230,10 +239,15 @@ public class AfipWsfeClient {
     }
 
     private Element invocarParamGet(String operacion) {
+        return invocarParamGet(operacion, "");
+    }
+
+    private Element invocarParamGet(String operacion, String parametrosExtra) {
         asegurarHomologacion();
         WsfeAuth auth = obtenerAutenticacion();
         String body = "<ar:" + operacion + " xmlns:ar=\"" + ARCA_NS + "\">"
                 + authXml(auth)
+                + (parametrosExtra == null ? "" : parametrosExtra)
                 + "</ar:" + operacion + ">";
         Document doc = invocarOperacion(operacion, body);
         Element result = primerElementoPorNombreLocal(doc, operacion + "Result");

@@ -1,6 +1,7 @@
 package com.example.api_tp;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -28,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.example.api_tp.client.AfipWsaaClient;
 import com.example.api_tp.client.AfipWsfeClient;
+import com.example.api_tp.client.arca.exception.ArcaCommunicationException;
 import com.example.api_tp.client.arca.wsfe.CompConsultarResultado;
 import com.example.api_tp.client.arca.wsfe.CotizacionArca;
 import com.example.api_tp.client.arca.wsfe.FeCaeDetalle;
@@ -310,11 +312,11 @@ class FacturaCicloVidaArcaIntegrationTests {
     @Test
     void determinaCotizacionDeMonedaExtranjeraEnElBackend() throws Exception {
         Fixture fx = fixture();
-        Long usdId = crearTipoMoneda("USD", "Dólar", "US$");
+        Long usdId = crearTipoMoneda("DOL", "Dólar Estadounidense", "US$");
         long id = crearPendiente(fx, null, usdId);
         stubCatalogos();
-        when(afipWsfeClient.feParamGetCotizacion("USD"))
-                .thenReturn(new CotizacionArca("USD", new BigDecimal("1234.56"), "20261021"));
+        when(afipWsfeClient.feParamGetCotizacion("DOL"))
+                .thenReturn(new CotizacionArca("DOL", new BigDecimal("1234.56"), "20261021"));
         when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
                 .thenReturn(new UltimoAutorizadoResult(1, 1, 50, List.of(), List.of()));
         when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class))).thenReturn(aprobada(51L));
@@ -328,7 +330,7 @@ class FacturaCicloVidaArcaIntegrationTests {
         ArgumentCaptor<FeCaeSolicitud> captor = ArgumentCaptor.forClass(FeCaeSolicitud.class);
         verify(afipWsfeClient).feCaeSolicitar(captor.capture());
         FeCaeDetalle detalle = captor.getValue().getComprobantes().get(0);
-        assertEquals("USD", detalle.getMonId());
+        assertEquals("DOL", detalle.getMonId());
         assertEquals(0, detalle.getMonCotiz().compareTo(new BigDecimal("1234.56")));
         assertEquals(1234.56,
                 facturaVentaRepository.findById(id).orElseThrow().getCotizacionArca(), 0.001);
@@ -337,10 +339,10 @@ class FacturaCicloVidaArcaIntegrationTests {
     @Test
     void noEnviaSiNoPuedeDeterminarLaCotizacion() throws Exception {
         Fixture fx = fixture();
-        Long usdId = crearTipoMoneda("USD", "Dólar", "US$");
+        Long usdId = crearTipoMoneda("DOL", "Dólar Estadounidense", "US$");
         long id = crearPendiente(fx, null, usdId);
         stubCatalogos();
-        when(afipWsfeClient.feParamGetCotizacion("USD")).thenReturn(null);
+        when(afipWsfeClient.feParamGetCotizacion("DOL")).thenReturn(null);
 
         mockMvc.perform(post("/api/facturas/envios/arca")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -351,7 +353,151 @@ class FacturaCicloVidaArcaIntegrationTests {
         verify(afipWsfeClient, never()).feCaeSolicitar(any());
         FacturaVenta factura = facturaVentaRepository.findById(id).orElseThrow();
         assertEquals("PENDIENTE", factura.getEstado());
-        assertEquals("USD", factura.getMonedaArca());
+        assertEquals("DOL", factura.getMonedaArca());
+    }
+
+    @Test
+    void persisteInciertoConMensajeLargoSin409() throws Exception {
+        Fixture fx = fixture();
+        long id = crearPendiente(fx, null);
+        stubCatalogos();
+        when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 60, List.of(), List.of()));
+        when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class)))
+                .thenThrow(new ArcaCommunicationException("WSFEv1 Fault [500]: " + "detalle ".repeat(80), 500, "body"));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultadoDesconocido").value(1));
+
+        FacturaVenta factura = facturaVentaRepository.findById(id).orElseThrow();
+        assertEquals("RESULTADO_DESCONOCIDO", factura.getEstado());
+        assertTrue(factura.getMotivoRechazo().length() > 255);
+        assertTrue(factura.getMotivoRechazo().length() <= 1000);
+
+        mockMvc.perform(get("/api/facturas/{id}/envios", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].estadoIntento").value("INCIERTO"))
+                .andExpect(jsonPath("$[0].mensajeTecnico").isNotEmpty());
+    }
+
+    @Test
+    void persisteAutorizadaConObservacionesLargas() throws Exception {
+        Fixture fx = fixture();
+        long id = crearPendiente(fx, null);
+        stubCatalogos();
+        when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 80, List.of(), List.of()));
+        FeCaeResultado cae = aprobada(81L);
+        cae.getDetalles().get(0).getObservaciones()
+                .add(new com.example.api_tp.client.arca.wsfe.WsfeMessage(100, "observacion ".repeat(50)));
+        when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class))).thenReturn(cae);
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.autorizadas").value(1));
+
+        FacturaVenta factura = facturaVentaRepository.findById(id).orElseThrow();
+        assertEquals("AUTORIZADA", factura.getEstado());
+        assertTrue(factura.getObservaciones().length() >= 600);
+        assertTrue(factura.getObservaciones().length() <= 1000);
+    }
+
+    @Test
+    void unFalloDePersistenciaNoCortaElLote() throws Exception {
+        Fixture fx = fixture();
+        long falla = crearPendiente(fx, null);
+        long ok = crearPendiente(fx, null);
+        stubCatalogos();
+        when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 90, List.of(), List.of()));
+        // un CAE de 300 caracteres no entra en la columna varchar(255): fuerza el fallo de persistencia
+        FeCaeResultado caeInvalido = aprobada(91L);
+        caeInvalido.getDetalles().get(0).setCae("X".repeat(300));
+        when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class)))
+                .thenReturn(caeInvalido, aprobada(92L));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + falla + "," + ok + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.procesadas").value(2))
+                .andExpect(jsonPath("$.autorizadas").value(1))
+                .andExpect(jsonPath("$.resultadoDesconocido").value(1));
+
+        assertEquals("RESULTADO_DESCONOCIDO", facturaVentaRepository.findById(falla).orElseThrow().getEstado());
+        assertEquals("AUTORIZADA", facturaVentaRepository.findById(ok).orElseThrow().getEstado());
+        mockMvc.perform(get("/api/facturas/{id}/envios", falla))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].estadoIntento").value("INCIERTO"));
+    }
+
+    @Test
+    void noEnviaSiLaCondicionIvaNoEstaEnElCatalogoDeSuClase() throws Exception {
+        Fixture fx = fixture();
+        long id = crearPendiente(fx, null);
+        stubCatalogos();
+        // la factura es clase A (receptor RI) pero el catálogo A no incluye el código 1
+        when(afipWsfeClient.feParamGetCondicionIvaReceptor("A"))
+                .thenReturn(List.of(new ParametroArca("6", "Responsable Monotributo")));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.noEnviadasPorValidacion").value(1));
+
+        verify(afipWsfeClient, never()).feCaeSolicitar(any());
+        assertEquals("PENDIENTE", facturaVentaRepository.findById(id).orElseThrow().getEstado());
+        mockMvc.perform(get("/api/facturas/{id}/envios", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].estadoIntento").value("NO_ENVIADA"))
+                .andExpect(jsonPath("$[0].mensajeTecnico").value(containsString("condición IVA")));
+    }
+
+    @Test
+    void enviaLaCondicionIvaResueltaDelCatalogo() throws Exception {
+        Fixture fx = fixture();
+        long id = crearPendiente(fx, null);
+        stubCatalogos();
+        when(afipWsfeClient.feCompUltimoAutorizado(anyInt(), anyInt()))
+                .thenReturn(new UltimoAutorizadoResult(1, 1, 30, List.of(), List.of()));
+        when(afipWsfeClient.feCaeSolicitar(any(FeCaeSolicitud.class))).thenReturn(aprobada(31L));
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.autorizadas").value(1));
+
+        ArgumentCaptor<FeCaeSolicitud> captor = ArgumentCaptor.forClass(FeCaeSolicitud.class);
+        verify(afipWsfeClient).feCaeSolicitar(captor.capture());
+        assertEquals(1, captor.getValue().getComprobantes().get(0).getCondicionIvaReceptorId());
+        assertEquals(1, facturaVentaRepository.findById(id).orElseThrow().getCondicionIvaReceptorArca());
+    }
+
+    @Test
+    void noEnviaSiLaMonedaNoEstaEnElCatalogo() throws Exception {
+        Fixture fx = fixture();
+        Long libraId = crearTipoMoneda("GBP", "Libra Esterlina", "£");
+        long id = crearPendiente(fx, null, libraId);
+        stubCatalogos();
+
+        mockMvc.perform(post("/api/facturas/envios/arca")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + id + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.noEnviadasPorValidacion").value(1));
+
+        verify(afipWsfeClient, never()).feCaeSolicitar(any());
+        assertEquals("PENDIENTE", facturaVentaRepository.findById(id).orElseThrow().getEstado());
+        mockMvc.perform(get("/api/facturas/{id}/envios", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].mensajeTecnico").value(containsString("FEParamGetTiposMonedas")));
     }
 
     // --- helpers ---
@@ -404,6 +550,16 @@ class FacturaCicloVidaArcaIntegrationTests {
                 new ParametroArca("3", "IVA 0%")));
         when(afipWsfeClient.feParamGetPtosVenta()).thenReturn(List.of(
                 new PuntoVentaArca(1, "CAE", false)));
+        when(afipWsfeClient.feParamGetCondicionIvaReceptor("A")).thenReturn(List.of(
+                new ParametroArca("1", "IVA Responsable Inscripto")));
+        when(afipWsfeClient.feParamGetCondicionIvaReceptor("B")).thenReturn(List.of(
+                new ParametroArca("4", "IVA Sujeto Exento"),
+                new ParametroArca("5", "Consumidor Final")));
+        when(afipWsfeClient.feParamGetTiposMonedas()).thenReturn(List.of(
+                new ParametroArca("PES", "Pesos Argentinos"),
+                new ParametroArca("DOL", "Dólar Estadounidense"),
+                new ParametroArca("060", "Euro"),
+                new ParametroArca("012", "Real Brasileño")));
     }
 
     private FacturaRequestDTO req(Fixture fx) {

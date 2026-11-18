@@ -26,8 +26,10 @@ import com.example.api_tp.client.arca.wsfe.ParametroArca;
 import com.example.api_tp.client.arca.wsfe.PuntoVentaArca;
 import com.example.api_tp.client.arca.wsfe.UltimoAutorizadoResult;
 import com.example.api_tp.client.arca.wsfe.WsfeMessage;
+import com.example.api_tp.model.CondicionIva;
 import com.example.api_tp.model.FacturaVenta;
 import com.example.api_tp.model.FacturaVentaDetalle;
+import com.example.api_tp.model.TipoMoneda;
 
 
 @Service
@@ -65,6 +67,16 @@ public class ArcaFacturaElectronicaService {
     /** Puntos de venta habilitados en ARCA. Se consulta una vez por lote de envío. */
     public List<PuntoVentaArca> obtenerPuntosVenta() {
         return wsfeClient.feParamGetPtosVenta();
+    }
+
+    /** Condiciones IVA del receptor admitidas por WSFEv1 para una clase de comprobante ("A"/"B"). */
+    public List<ParametroArca> obtenerCondicionesIvaReceptor(String claseCmp) {
+        return wsfeClient.feParamGetCondicionIvaReceptor(claseCmp);
+    }
+
+    /** Tipos de moneda admitidos por WSFEv1 (Mon_Id). */
+    public List<ParametroArca> obtenerTiposMonedas() {
+        return wsfeClient.feParamGetTiposMonedas();
     }
 
     /** Cotización oficial de la moneda informada. */
@@ -297,6 +309,78 @@ public class ArcaFacturaElectronicaService {
             }
         }
         throw new ArcaException("La alícuota de IVA " + porcentaje + "% no existe en FEParamGetTiposIva");
+    }
+
+    /**
+     * Resuelve el CondicionIVAReceptorId contra el catálogo real de ARCA: primero por Id exacto,
+     * después por descripción normalizada. Sin equivalencia no se envía.
+     */
+    public static int resolverCondicionIvaReceptorId(CondicionIva condicion, List<ParametroArca> catalogo) {
+        if (condicion == null) {
+            throw new ArcaException("La factura no tiene condición IVA del receptor");
+        }
+        if (catalogo == null || catalogo.isEmpty()) {
+            throw new ArcaException("No se pudo consultar FEParamGetCondicionIvaReceptor");
+        }
+        String idLocal = String.valueOf(condicion.getCodigoAfip());
+        for (ParametroArca item : catalogo) {
+            if (idLocal.equals(texto(item.getId()))) {
+                return condicion.getCodigoAfip();
+            }
+        }
+        String descripcionLocal = normalizar(condicion.getDenominacion());
+        for (ParametroArca item : catalogo) {
+            if (!descripcionLocal.isEmpty() && descripcionLocal.equals(normalizar(item.getDescripcion()))) {
+                return parsearId(item, "condición IVA del receptor");
+            }
+        }
+        throw new ArcaException("La condición IVA '" + condicion.getDenominacion() + "' (código "
+                + condicion.getCodigoAfip() + ") no está admitida para esta clase de comprobante en ARCA");
+    }
+
+    /** Resuelve el Mon_Id real contra FEParamGetTiposMonedas (código o descripción normalizada). */
+    public static String resolverMonId(TipoMoneda moneda, List<ParametroArca> catalogo) {
+        if (moneda == null || !StringUtils.hasText(moneda.getCodigoAfip())) {
+            throw new ArcaException("La moneda seleccionada no tiene un código AFIP válido");
+        }
+        if (catalogo == null || catalogo.isEmpty()) {
+            throw new ArcaException("No se pudo consultar FEParamGetTiposMonedas");
+        }
+        String codigoLocal = moneda.getCodigoAfip().trim();
+        for (ParametroArca item : catalogo) {
+            if (codigoLocal.equalsIgnoreCase(texto(item.getId()))) {
+                return item.getId().trim();
+            }
+        }
+        String descripcionLocal = normalizar(moneda.getDenominacion());
+        for (ParametroArca item : catalogo) {
+            if (!descripcionLocal.isEmpty() && descripcionLocal.equals(normalizar(item.getDescripcion()))) {
+                return item.getId().trim();
+            }
+        }
+        throw new ArcaException("La moneda '" + moneda.getDenominacion() + "' (código " + codigoLocal
+                + ") no existe en FEParamGetTiposMonedas");
+    }
+
+    private static String texto(String valor) {
+        return valor == null ? "" : valor.trim();
+    }
+
+    private static int parsearId(ParametroArca item, String descripcion) {
+        try {
+            return Integer.parseInt(texto(item.getId()));
+        } catch (RuntimeException ex) {
+            throw new ArcaException("Id inválido en el catálogo ARCA de " + descripcion + ": " + item.getId());
+        }
+    }
+
+    private static String normalizar(String valor) {
+        if (!StringUtils.hasText(valor)) {
+            return "";
+        }
+        String sinAcentos = java.text.Normalizer.normalize(valor, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return sinAcentos.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
     private static BigDecimal extraerPorcentaje(String descripcion) {

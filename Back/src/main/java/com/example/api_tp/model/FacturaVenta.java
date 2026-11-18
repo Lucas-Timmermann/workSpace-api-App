@@ -55,10 +55,12 @@ public class FacturaVenta extends AuditoriaApp {
     private Date caeFechaVencimiento;
     @Column(nullable = false)
     private String resultadoAfip;
+    @Column(length = 1000)
     private String motivoRechazo;
     @Column(nullable = false)
     private String estado;
     private Date fechaAnulacion;
+    @Column(length = 1000)
     private String observaciones;
 
 
