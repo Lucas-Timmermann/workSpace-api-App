@@ -1,8 +1,11 @@
 package com.example.api_tp.config;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Random;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,11 +13,14 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import com.example.api_tp.client.AfipWsfeClient;
 import com.example.api_tp.client.arca.wsfe.PuntoVentaArca;
+import com.example.api_tp.dto.FacturaDetalleRequestDTO;
+import com.example.api_tp.dto.FacturaRequestDTO;
 import com.example.api_tp.model.Articulo;
 import com.example.api_tp.model.AuditoriaApp;
 import com.example.api_tp.model.Cliente;
@@ -28,6 +34,7 @@ import com.example.api_tp.model.PuntoVenta;
 import com.example.api_tp.model.Rubro;
 import com.example.api_tp.model.TipoMoneda;
 import com.example.api_tp.model.Usuario;
+import com.example.api_tp.service.FacturaService;
 
 import jakarta.persistence.EntityManager;
 
@@ -40,6 +47,10 @@ public class DatosInicialesRunner implements CommandLineRunner {
 
     private static final String USUARIO_ADMIN = "admin";
     private static final String DOMICILIO_COMERCIAL = "Av. Corrientes 1234, Ciudad Autónoma de Buenos Aires";
+    private static final int FACTURAS_EJEMPLO = 30;
+    private static final String OBSERVACION_FACTURA_EJEMPLO = "Factura de ejemplo de la precarga inicial";
+    private static final int[] BONIFICACIONES = {0, 5, 10};
+    private static final long UN_DIA_MS = 24L * 60 * 60 * 1000;
 
     private static final List<CondicionIvaDef> CONDICIONES_IVA = List.of(
             new CondicionIvaDef(1, "IVA Responsable Inscripto"),
@@ -112,20 +123,31 @@ public class DatosInicialesRunner implements CommandLineRunner {
     private final EntityManager entityManager;
     private final AfipWsfeClient afipWsfeClient;
     private final ArcaProperties arcaProperties;
+    private final FacturaService facturaService;
     private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate transaccionFacturas;
 
     public DatosInicialesRunner(EntityManager entityManager, AfipWsfeClient afipWsfeClient,
-            ArcaProperties arcaProperties, PlatformTransactionManager transactionManager) {
+            ArcaProperties arcaProperties, PlatformTransactionManager transactionManager,
+            FacturaService facturaService) {
         this.entityManager = entityManager;
         this.afipWsfeClient = afipWsfeClient;
         this.arcaProperties = arcaProperties;
+        this.facturaService = facturaService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transaccionFacturas = new TransactionTemplate(transactionManager);
+        this.transaccionFacturas.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     @Override
     public void run(String... args) {
         List<PuntoVentaArca> puntosVenta = obtenerPuntosVentaArca();
         transactionTemplate.executeWithoutResult(status -> sembrar(puntosVenta));
+        try {
+            transaccionFacturas.executeWithoutResult(status -> sembrarFacturas());
+        } catch (RuntimeException ex) {
+            log.warn("Precarga: no se pudieron generar las facturas de ejemplo ({})", ex.getMessage());
+        }
     }
 
     private void sembrar(List<PuntoVentaArca> puntosVenta) {
@@ -161,6 +183,109 @@ public class DatosInicialesRunner implements CommandLineRunner {
 
         entityManager.flush();
         log.info("Precarga de datos iniciales verificada");
+    }
+
+    private void sembrarFacturas() {
+        long existentes = contarFacturasEjemplo();
+        if (existentes > 0) {
+            log.info("Precarga: ya existen {} facturas de ejemplo, no se generan nuevamente", existentes);
+            return;
+        }
+        List<Cliente> clientes = listar("select c from Cliente c", Cliente.class);
+        List<CondicionIva> condiciones = listar("select c from CondicionIva c", CondicionIva.class);
+        List<TipoMoneda> monedas = listar("select m from TipoMoneda m", TipoMoneda.class);
+        List<PuntoVenta> puntosVenta = listar("select p from PuntoVenta p", PuntoVenta.class);
+        List<ListaPrecioArticulo> precios = listar(
+                "select l from ListaPrecioArticulo l join fetch l.articulo", ListaPrecioArticulo.class);
+        if (clientes.isEmpty() || condiciones.isEmpty() || monedas.isEmpty()
+                || puntosVenta.isEmpty() || precios.isEmpty()) {
+            log.warn("Precarga: faltan datos base para generar las facturas de ejemplo");
+            return;
+        }
+        Random random = new Random();
+        for (int indice = 0; indice < FACTURAS_EJEMPLO; indice++) {
+            facturaService.crear(facturaAleatoria(clientes, condiciones, monedas, puntosVenta, precios, random, indice));
+        }
+        long total = contarFacturasEjemplo();
+        long conDetalles = contarFacturasEjemploConDetalles();
+        if (total == FACTURAS_EJEMPLO && conDetalles == total) {
+            log.info("Precarga: {} facturas de ejemplo generadas con sus detalles", total);
+        } else {
+            log.warn("Precarga: se esperaban {} facturas de ejemplo con detalles y se generaron {} "
+                    + "({} con detalles)", FACTURAS_EJEMPLO, total, conDetalles);
+        }
+    }
+
+    private FacturaRequestDTO facturaAleatoria(List<Cliente> clientes, List<CondicionIva> condiciones,
+            List<TipoMoneda> monedas, List<PuntoVenta> puntosVenta, List<ListaPrecioArticulo> precios,
+            Random random, int indice) {
+        FacturaRequestDTO request = new FacturaRequestDTO();
+        request.setFechaEmision(new Date(System.currentTimeMillis() - random.nextInt(60) * UN_DIA_MS));
+        request.setClienteId(aleatorio(clientes, random).getId());
+        request.setCondicionIvaId(condicionAleatoria(condiciones, random, indice).getId());
+        request.setPuntoVentaId(aleatorio(puntosVenta, random).getId());
+        request.setTipoMonedaId(aleatorio(monedas, random).getId());
+        request.setImporteCobrado(BigDecimal.ZERO);
+        request.setObservaciones(OBSERVACION_FACTURA_EJEMPLO);
+        request.setDetalles(detallesAleatorios(precios, random));
+        return request;
+    }
+
+    /** Una de cada cinco facturas es de Consumidor Final; el resto se elige al azar. */
+    private static CondicionIva condicionAleatoria(List<CondicionIva> condiciones, Random random, int indice) {
+        if (indice % 5 == 0) {
+            return condiciones.stream()
+                    .filter(condicion -> condicion.getCodigoAfip() == 5)
+                    .findFirst()
+                    .orElseGet(() -> aleatorio(condiciones, random));
+        }
+        return aleatorio(condiciones, random);
+    }
+
+    private static List<FacturaDetalleRequestDTO> detallesAleatorios(List<ListaPrecioArticulo> precios,
+            Random random) {
+        List<ListaPrecioArticulo> disponibles = new ArrayList<>(precios);
+        Collections.shuffle(disponibles, random);
+        int cantidadDetalles = 1 + random.nextInt(Math.min(5, disponibles.size()));
+        List<FacturaDetalleRequestDTO> detalles = new ArrayList<>(cantidadDetalles);
+        for (int indice = 0; indice < cantidadDetalles; indice++) {
+            ListaPrecioArticulo precio = disponibles.get(indice);
+            detalles.add(new FacturaDetalleRequestDTO(
+                    null,
+                    precio.getArticulo().getId(),
+                    precio.getId(),
+                    null,
+                    BigDecimal.valueOf(1 + random.nextInt(10)),
+                    BigDecimal.valueOf(precio.getPrecioVenta()),
+                    BigDecimal.valueOf(BONIFICACIONES[random.nextInt(BONIFICACIONES.length)]),
+                    BigDecimal.valueOf(21)));
+        }
+        return detalles;
+    }
+
+    private long contarFacturasEjemplo() {
+        Long total = entityManager.createQuery(
+                "select count(f) from FacturaVenta f where f.observaciones = :valor", Long.class)
+                .setParameter("valor", OBSERVACION_FACTURA_EJEMPLO)
+                .getSingleResult();
+        return total == null ? 0 : total;
+    }
+
+    private long contarFacturasEjemploConDetalles() {
+        Long total = entityManager.createQuery(
+                "select count(f) from FacturaVenta f where f.observaciones = :valor and size(f.detalles) > 0",
+                Long.class)
+                .setParameter("valor", OBSERVACION_FACTURA_EJEMPLO)
+                .getSingleResult();
+        return total == null ? 0 : total;
+    }
+
+    private <T> List<T> listar(String jpql, Class<T> tipo) {
+        return entityManager.createQuery(jpql, tipo).getResultList();
+    }
+
+    private static <T> T aleatorio(List<T> valores, Random random) {
+        return valores.get(random.nextInt(valores.size()));
     }
 
     private List<PuntoVentaArca> obtenerPuntosVentaArca() {
