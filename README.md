@@ -17,7 +17,7 @@ Aplicación de facturación de venta con backend **Spring Boot** y frontend **Ty
 
 ## 1. Qué hace el sistema
 
-- **Catálogos de solo lectura**: puntos de venta, clientes, condiciones de IVA, monedas y listas de precio con sus artículos.
+- **Catálogos de solo lectura**: puntos de venta, clientes, condiciones de IVA, monedas, rubros y listas de precio con sus artículos; el frontend usa un explorador de clientes y filtros de artículos por denominación y rubro.
 - **Facturas**: alta, edición y anulación lógica mientras no hayan sido enviadas o autorizadas; listado general, listado de pendientes y listado de autorizadas.
 - **Cálculo**: neto, IVA y subtotal por renglón; totales de cabecera y saldo.
 - **Reportes PDF**: registro de facturas autorizadas y comprobante individual de una factura autorizada.
@@ -85,6 +85,7 @@ npm run dev
 - 2 listas de precio (`DatosInicialesRunner.java` 125-164).
 - Puntos de venta 1 a 4: primero intenta obtenerlos de ARCA y, si falla, usa valores locales (`DatosInicialesRunner.java` 166-207).
 - Usuario `admin` (`DatosInicialesRunner.java` 209-221).
+- Se precargan 30 facturas de ejemplo con fecha actual (`DatosInicialesRunner.java`, `FACTURAS_EJEMPLO = 30`).
 
 ## 4. Estructura del repositorio
 
@@ -93,7 +94,7 @@ Back/
   src/main/java/com/example/api_tp/
     model/         entidades JPA y enums
     dto/           contratos de entrada y salida
-    repository/    repositorios Spring Data
+    repository/    repositorios Spring Data (incluye RubroRepository)
     service/       lógica de facturas, estados y PDF
     service/arca/  armado e interpretación de comprobantes ARCA
     client/        clientes SOAP WSAA y WSFEv1
@@ -164,10 +165,10 @@ Front/
 - Armado del DTO: `FacturaService.java` (875-922). Se cargan las asociaciones dentro de la transacción y se mapea a mano.
 - Consultas con filtros y paginación: `FacturaVentaRepository.java` (71-98); la carga con detalles para PDF está en (38-51).
 - Generación de PDF: `FacturaPdfService.java`
-  - Registro de facturas autorizadas: (45-67); la consulta filtra `estado = 'AUTORIZADA'` (`FacturaVentaRepository.java` 38-51).
-  - Comprobante individual: (69-94); exige estado `AUTORIZADA` y CAE con vencimiento.
-  - Escritura, saltos de página y formato: (108-228).
-  - Conversión de caracteres no latinos: (219-228) reemplaza por `?`.
+  - Registro de facturas autorizadas: (69-94); la consulta filtra `estado = 'AUTORIZADA'` (`FacturaVentaRepository.java` 38-51).
+  - Comprobante individual: (96-120); exige estado `AUTORIZADA` y CAE con vencimiento.
+  - Escritura, saltos de página y formato: `PdfWriter` (166-649); incluye encabezado, bloques emisor/receptor, tabla de renglones, totales y bloque fiscal.
+  - Conversión de caracteres no latinos: (600-617) reemplaza por `?`.
 
 **Funcionamiento dentro del sistema.** `GET /api/facturas/pdf` arma un PDF con las facturas **autorizadas**. `GET /api/facturas/{id}/pdf` genera el comprobante de una factura autorizada. No se usan entidades como respuesta HTTP: el servicio devuelve `FacturaReporteDTO` o `FacturaVentaPaginaDTO`.
 
@@ -180,13 +181,13 @@ Front/
 **Explicación sencilla.** El frontend pide datos por HTTP: listados con filtros, detalle de una factura, catálogos para los selectores y archivos PDF.
 
 **Implementación en el código.** (`FacturaController.java`, base `/api/facturas`)
-- Listado paginado: (55-65). Parámetros: `numeroFactura`, `clienteDenominacion`, `condicionIva`, `fechaDesde`, `fechaHasta`, `page`.
+- Listado paginado: (55-65). Parámetros: `numeroFactura`, `clienteDenominacion`, `condicionIva`, `fechaDesde`, `fechaHasta`, `page`. Orden: general descendente por número e ID (323); `autorizadas` ascendente (284).
 - Detalle por ID: (105-108).
 - Pendientes de envío: (86-95).
 - Autorizadas: (97-102).
 - PDF de facturas autorizadas: (45-53).
 - PDF individual: (132-140).
-- Catálogos: `CatalogoController.java` (25-54): `/api/puntos-venta`, `/api/clientes`, `/api/condiciones-iva`, `/api/tipos-moneda`, `/api/listas-precio`, `/api/listas-precio/{id}/articulos`.
+- Catálogos: `CatalogoController.java` (25-60): `/api/puntos-venta`, `/api/clientes`, `/api/condiciones-iva`, `/api/tipos-moneda`, `/api/listas-precio`, `/api/rubros`, `/api/listas-precio/{id}/articulos`.
 - Filtros y paginación en repositorio: `FacturaVentaRepository.java` (71-98).
 - CORS: `CorsConfig.java` (18-25), orígenes `http://localhost:5173` y `http://127.0.0.1:5173`.
 - Errores centralizados: `GlobalExceptionHandler.java` (36-143) y cuerpo JSON con `timestamp`, `status`, `error`, `tipo`, `message` y `detalles` (153-165).
@@ -212,6 +213,7 @@ Front/
   - Editar: (180-217). Solo permite estados editables (`PENDIENTE` o `RECHAZADA`), reemplaza renglones y vuelve a `PENDIENTE`.
   - Anular: (219-245). Pasa a `ANULADA_LOCAL`, registra fecha y usuario de baja. No se permite anular una `AUTORIZADA`.
   - Eliminar: (248-251). Es una **anulación lógica**, no un borrado físico.
+- Tipo de comprobante: monotributo (código 6) emite comprobante tipo A (`FacturaService.java` 692-702, 759-760).
 - Contratos de entrada:
   - `FacturaRequestDTO.java` (23-81): exige fecha, cliente, condición IVA, punto de venta, moneda, importe cobrado y al menos un detalle; rechaza propiedades desconocidas y campos de control (`@JsonAnySetter`, 69-81).
   - `FacturaDetalleRequestDTO.java` (19-49): exige `articuloId`, `listaPrecioArticuloId`, `precioUnitario` y `porcentajeIva`.
@@ -262,6 +264,7 @@ Esta sección documenta la extensión del grupo. **No forma parte del enunciado 
 - Variables en `application.properties` (13-25): `ARCA_CUIT`, `ARCA_WSAA_URL`, `ARCA_WSFEV1_URL`, `ARCA_CERT_PATH`, `ARCA_KEY_PATH`, timeouts y margen de renovación.
 - `ArcaConfig.java` (10-17) aporta el `Clock` usado para validar vencimientos.
 - Los certificados de prueba están versionados en `Back/src/main/resources/certs/` y se cargan por `classpath:`.
+- Migración de monedas a códigos ARCA reales (`DOL`, `060`, `012`) en el seed (`DatosInicialesRunner.java` 64-66).
 - **Bloqueo de producción:** `AfipWsaaClient.asegurarHomologacion` (478-497) y `AfipWsfeClient` (560-576) rechazan URL de producción. El sistema solo funciona contra homologación.
 
 ### WSAA: autenticación
@@ -281,6 +284,14 @@ Esta sección documenta la extensión del grupo. **No forma parte del enunciado 
 - Parámetros de ARCA (tipos de comprobante, concepto, documento, IVA, monedas, puntos de venta y cotización): (143-230).
 - Serialización del detalle y parseo de CAE, observaciones y errores: (267-368).
 - Armado del sobre SOAP y manejo de fallas de comunicación: (370-420).
+
+### Catálogos fiscales y persistencia resiliente (commits recientes)
+- `FEParamGetCondicionIvaReceptor` y `FEParamGetTiposMonedas`: `AfipWsfeClient.java` (163-166) y `ArcaFacturaElectronicaService.java` (71-79).
+- Resolución contra catálogo real: `resolverCondicionIvaReceptorId` y `resolverMonId` (`ArcaFacturaElectronicaService.java` 313-360).
+- Validación previa de moneda y condición IVA contra los catálogos (`FacturaService.java` 850-878).
+- Persistencia resiliente: `motivoRechazo` y `observaciones` a 1000 (`FacturaVenta.java` 57, 63), truncado de resultados (914-918), lote que no aborta y compensación a `RESULTADO_DESCONOCIDO` (`FacturaService.java` 677-705).
+- Logging de la causa SQL en violaciones de integridad (`GlobalExceptionHandler.java` 111-112).
+- Fechas ARCA formateadas en UTC (`ArcaFacturaElectronicaService.java` 283).
 
 ### Orquestación en el servicio
 
@@ -358,41 +369,10 @@ Transiciones en `FacturaEstadoMachine.java` (17-30). La anulación de una factur
 | `GET` | `/api/condiciones-iva` | Catálogo de condiciones de IVA |
 | `GET` | `/api/tipos-moneda` | Catálogo de monedas |
 | `GET` | `/api/listas-precio` | Catálogo de listas de precio |
+| `GET` | `/api/rubros` | Catálogo de rubros |
 | `GET` | `/api/listas-precio/{id}/articulos` | Artículos y precios de una lista |
 
 
 
-## Pruebas y verificaciones
 
-### Backend
-
-```powershell
-cd Back
-.\mvnw.cmd test
-```
-
-Última ejecución local: **57 pruebas, 57 en verde**.
-
-- El resto cubre alta/edición/anulación, validaciones, filtros, auditoría, concurrencia, datos iniciales y los clientes WSAA/WSFEv1 con HTTP simulado:
-  - `FacturaIntegrationTests.java`
-  - `FacturaCicloVidaArcaIntegrationTests.java`
-  - `AfipWsaaClientTest.java`
-  - `AfipWsfeClientTest.java`
-  - `ArcaFacturaElectronicaServiceTest.java`
-  - `DatosInicialesRunnerTests.java`
-  - `ApiTpApplicationTests.java`
-
-### Frontend
-
-```powershell
-cd Front
-npm ci
-npm run build
-```
-
-La compilación TypeScript pasa. **No hay pruebas automatizadas**: `npm test` está definido como un comando que falla (`Front/package.json` 9).
-
-### Entorno de las pruebas
-
-Las pruebas de backend corren con H2 en memoria como dependencia de test (`Back/pom.xml` 80), aunque la aplicación de ejecución usa MySQL.
 
