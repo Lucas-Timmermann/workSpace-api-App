@@ -51,7 +51,7 @@ Aplicación de facturación de venta con backend **Spring Boot** y frontend **Ty
 
 ```powershell
 cd Back
-$env:DB_URL="jdbc:mysql://localhost:3306/"Tu base de datos" "
+$env:DB_URL="jdbc:mysql://localhost:3306/tu-base-de-datos"
 $env:DB_USERNAME="root"
 $env:DB_PASSWORD="<tu-password>"
 .\mvnw.cmd spring-boot:run
