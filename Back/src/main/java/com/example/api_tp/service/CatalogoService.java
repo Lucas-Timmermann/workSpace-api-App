@@ -16,12 +16,14 @@ import com.example.api_tp.model.CondicionIva;
 import com.example.api_tp.model.ListaPrecio;
 import com.example.api_tp.model.ListaPrecioArticulo;
 import com.example.api_tp.model.PuntoVenta;
+import com.example.api_tp.model.Rubro;
 import com.example.api_tp.model.TipoMoneda;
 import com.example.api_tp.repository.ClienteRepository;
 import com.example.api_tp.repository.CondicionIvaRepository;
 import com.example.api_tp.repository.ListaPrecioArticuloRepository;
 import com.example.api_tp.repository.ListaPrecioRepository;
 import com.example.api_tp.repository.PuntoVentaRepository;
+import com.example.api_tp.repository.RubroRepository;
 import com.example.api_tp.repository.TipoMonedaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,7 @@ public class CatalogoService {
     private final TipoMonedaRepository tipoMonedaRepository;
     private final ListaPrecioRepository listaPrecioRepository;
     private final ListaPrecioArticuloRepository listaPrecioArticuloRepository;
+    private final RubroRepository rubroRepository;
 
     @Transactional(readOnly = true)
     public List<PuntoVentaDTO> obtenerPuntosVenta() {
@@ -70,6 +73,13 @@ public class CatalogoService {
     public List<CatalogoDenominacionDTO> obtenerListasPrecio() {
         return listaPrecioRepository.findAll(Sort.by(ListaPrecio::getId)).stream()
                 .map(lista -> new CatalogoDenominacionDTO(lista.getId(), lista.getDenominacion()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogoDenominacionDTO> obtenerRubros() {
+        return rubroRepository.findAll(Sort.by(Rubro::getDenominacion)).stream()
+                .map(rubro -> new CatalogoDenominacionDTO(rubro.getId(), rubro.getDenominacion()))
                 .toList();
     }
 

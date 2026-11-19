@@ -169,10 +169,11 @@
                 <span>Punto de Venta <b class="required-mark">*</b></span>
                 <select name="puntoVentaId" required disabled><option value="">Cargando…</option></select>
               </label>
-              <label class="field">
+              <div class="field">
                 <span>Cliente <b class="required-mark">*</b></span>
-                <select name="clienteId" required disabled><option value="">Cargando…</option></select>
-              </label>
+                <select name="clienteId" required disabled hidden><option value="">Cargando…</option></select>
+                <button id="choose-client" class="button button-secondary client-picker" type="button" disabled>Seleccionar cliente</button>
+              </div>
               <label class="field">
                 <span>Condición IVA <b class="required-mark">*</b></span>
                 <select name="condicionIvaId" required disabled><option value="">Cargando…</option></select>
@@ -219,6 +220,16 @@
             <button id="close-article-explorer" class="button button-secondary button-small" type="button" aria-label="Cerrar explorador">Cerrar</button>
           </div>
           <p id="article-explorer-message" class="muted" role="status" aria-live="polite">Seleccionar nuevamente un artículo agrega otro renglón independiente.</p>
+          <div class="explorer-filters">
+            <label class="field">
+              <span>Denominación</span>
+              <input id="article-filter-name" type="search" placeholder="Buscar artículo" />
+            </label>
+            <label class="field">
+              <span>Rubro</span>
+              <select id="article-filter-rubro"><option value="">Todos los rubros</option></select>
+            </label>
+          </div>
           <div class="article-list-scroll">
             <table class="article-table">
               <thead><tr><th>Seleccionar</th><th>Artículo</th><th>Rubro</th><th>Precio Venta</th><th>Cantidad</th></tr></thead>
@@ -231,12 +242,36 @@
             <button id="confirm-article-selection" class="button button-primary" type="button" disabled>Agregar seleccionados</button>
           </div>
         </dialog>
+
+        <dialog id="client-explorer" class="article-dialog explorer-dialog" aria-labelledby="client-explorer-title">
+          <div class="article-dialog-header">
+            <div><p class="eyebrow">Clientes</p><h2 id="client-explorer-title">Explorador de clientes</h2></div>
+            <button id="close-client-explorer" class="button button-secondary button-small" type="button" aria-label="Cerrar explorador">Cerrar</button>
+          </div>
+          <p id="client-explorer-message" class="muted" role="status" aria-live="polite">Elige un cliente de la lista.</p>
+          <div class="explorer-filters">
+            <label class="field">
+              <span>Denominación</span>
+              <input id="client-filter" type="search" placeholder="Buscar cliente" />
+            </label>
+          </div>
+          <div class="article-list-scroll">
+            <table class="article-table">
+              <thead><tr><th>Seleccionar</th><th>Cliente</th></tr></thead>
+              <tbody id="client-rows"></tbody>
+            </table>
+          </div>
+          <div class="article-dialog-actions">
+            <button id="cancel-client-selection" class="button button-secondary" type="button">Cancelar</button>
+            <button id="confirm-client-selection" class="button button-primary" type="button" disabled>Seleccionar cliente</button>
+          </div>
+        </dialog>
       </section>
     </main>
 
-    <aside class="trace-panel" aria-labelledby="trace-title">
-      <div class="trace-heading">
-        <h2 id="trace-title">Trazas de comunicación con el backend</h2>
+    <aside id="trace-panel" class="trace-panel collapsed" aria-labelledby="trace-title">
+      <div id="trace-heading" class="trace-heading">
+        <h2 id="trace-title" role="button" tabindex="0" aria-expanded="false" aria-controls="trace-list">Trazas de comunicación con el backend</h2>
         <button id="clear-traces" class="button button-secondary button-small" type="button">Limpiar</button>
       </div>
       <div id="trace-list" class="trace-list" aria-live="polite">

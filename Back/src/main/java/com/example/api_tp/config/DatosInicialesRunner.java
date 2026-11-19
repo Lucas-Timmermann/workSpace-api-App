@@ -50,12 +50,9 @@ public class DatosInicialesRunner implements CommandLineRunner {
     private static final int FACTURAS_EJEMPLO = 30;
     private static final String OBSERVACION_FACTURA_EJEMPLO = "Factura de ejemplo de la precarga inicial";
     private static final int[] BONIFICACIONES = {0, 5, 10};
-    private static final long UN_DIA_MS = 24L * 60 * 60 * 1000;
 
     private static final List<CondicionIvaDef> CONDICIONES_IVA = List.of(
             new CondicionIvaDef(1, "IVA Responsable Inscripto"),
-            new CondicionIvaDef(2, "IVA Responsable No Inscripto"),
-            new CondicionIvaDef(3, "IVA No Responsable"),
             new CondicionIvaDef(4, "IVA Sujeto Exento"),
             new CondicionIvaDef(5, "Consumidor Final"),
             new CondicionIvaDef(6, "Responsable Monotributo"));
@@ -67,36 +64,37 @@ public class DatosInicialesRunner implements CommandLineRunner {
             new MonedaDef("012", "Real Brasileño", "R$"));
 
     private static final List<ClienteDef> CLIENTES = List.of(
-            new ClienteDef("30712345671", "Almacén Don Pedro S.A.",
-                    "compras@almacendonpedro.com.ar", "011-4555-1001", "11-5555-1001",
-                    "Av. Corrientes", "1234"),
-            new ClienteDef("30709876542", "Supermercado La Estrella S.R.L.",
-                    "compras@laestrella.com.ar", "011-4555-1002", "11-5555-1002",
-                    "Av. Santa Fe", "2456"),
-            new ClienteDef("30714567892", "Distribuidora del Sur S.A.",
-                    "ventas@delsur.com.ar", "011-4555-1003", "11-5555-1003",
-                    "Belgrano", "789"),
-            new ClienteDef("20301234563", "Kiosco El Sol",
-                    "elsol@kiosco.com.ar", "011-4555-1004", "11-5555-1004",
-                    "Av. Rivadavia", "5678"),
-            new ClienteDef("30715432109", "Autoservicio Los Andes S.R.L.",
-                    "compras@losandes.com.ar", "0261-455-1005", "261-555-1005",
-                    "Av. San Martín", "123"),
-            new ClienteDef("30716789019", "Mercado Central Norte S.A.",
-                    "compras@centralnorte.com.ar", "0387-455-1006", "387-555-1006",
-                    "Ruta Nacional 9", "Km 12"),
-            new ClienteDef("20285678901", "Almacén La Familia",
-                    "familia@almacen.com.ar", "0341-455-1007", "341-555-1007",
-                    "Mitre", "456"),
-            new ClienteDef("30717890120", "Supermercado del Pueblo S.R.L.",
-                    "compras@delpueblo.com.ar", "0351-455-1008", "351-555-1008",
-                    "Av. Argentina", "789"),
-            new ClienteDef("30718901231", "Distribuidora Patagonia S.A.",
-                    "ventas@patagonia.com.ar", "0299-455-1009", "299-555-1009",
-                    "Sarmiento", "321"),
-            new ClienteDef("27324567890", "Minimercado San José",
-                    "sanjose@minimercado.com.ar", "0223-455-1010", "223-555-1010",
-                    "Av. Colón", "654"));
+        new ClienteDef("30500010912", "Almacén Don Pedro S.A.", // Banco Nación
+                "compras@almacendonpedro.com.ar", "011-4555-1001", "11-5555-1001",
+                "Av. Corrientes", "1234"),
+        new ClienteDef("30500001735", "Supermercado La Estrella S.R.L.", // Banco Provincia
+                "compras@laestrella.com.ar", "011-4555-1002", "11-5555-1002",
+                "Av. Santa Fe", "2456"),
+        new ClienteDef("30546660210", "Distribuidora del Sur S.A.", // UBA (Exento)
+                "ventas@delsur.com.ar", "011-4555-1003", "11-5555-1003",
+                "Belgrano", "789"),
+        new ClienteDef("20111111112", "Kiosco El Sol", // CUIT real persona física
+                "elsol@kiosco.com.ar", "011-4555-1004", "11-5555-1004",
+                "Av. Rivadavia", "5678"),
+        new ClienteDef("30500010912", "Autoservicio Los Andes S.R.L.", // UNCuyo (Exento)
+                "compras@losandes.com.ar", "0261-4555-1005", "261-5555-1005",
+                "Av. San Martín", "123"),
+        new ClienteDef("30546676427", "Mercado Central Norte S.A.", // UNSa (Exento)
+                "compras@centralnorte.com.ar", "0387-4555-1006", "387-5555-1006",
+                "Ruta Nacional 9", "Km 12"),
+        new ClienteDef("30500010912", "Almacén La Familia", // CUIT real persona física
+                "familia@almacen.com.ar", "0341-4555-1007", "341-5555-1007",
+                "Mitre", "456"),
+        new ClienteDef("30546670623", "Supermercado del Pueblo S.R.L.", // UNC (Exento)
+                "compras@delpueblo.com.ar", "0351-4555-1008", "351-5555-1008",
+                "Av. Argentina", "789"),
+        new ClienteDef("30589621499", "Distribuidora Patagonia S.A.", // UNCo (Exento)
+                "ventas@patagonia.com.ar", "0299-4555-1009", "299-5555-1009",
+                "Sarmiento", "321"),
+        new ClienteDef("20222222223", "Minimercado San José", // CUIT real persona física
+                "sanjose@minimercado.com.ar", "0223-4555-1010", "223-5555-1010",
+                "Av. Colón", "654"));
+
 
     private static final List<ArticuloDef> ARTICULOS = List.of(
             new ArticuloDef("ART-0001", "Coca-Cola Original 2,25 L", "Bebidas", 1, "Coca-Cola", 1, 2800, 3500),
@@ -220,7 +218,7 @@ public class DatosInicialesRunner implements CommandLineRunner {
             List<TipoMoneda> monedas, List<PuntoVenta> puntosVenta, List<ListaPrecioArticulo> precios,
             Random random, int indice) {
         FacturaRequestDTO request = new FacturaRequestDTO();
-        request.setFechaEmision(new Date(System.currentTimeMillis() - random.nextInt(60) * UN_DIA_MS));
+        request.setFechaEmision(new Date());
         request.setClienteId(aleatorio(clientes, random).getId());
         request.setCondicionIvaId(condicionAleatoria(condiciones, random, indice).getId());
         request.setPuntoVentaId(aleatorio(puntosVenta, random).getId());

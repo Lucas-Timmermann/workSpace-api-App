@@ -26,6 +26,7 @@ export declare class FacturaService {
     obtenerCondicionesIva(): Promise<CatalogoDenominacionDTO[]>;
     obtenerTiposMoneda(): Promise<CatalogoDenominacionDTO[]>;
     obtenerListasPrecio(): Promise<CatalogoDenominacionDTO[]>;
+    obtenerRubros(): Promise<CatalogoDenominacionDTO[]>;
     obtenerArticulosDeLista(listaPrecioId: number): Promise<ListaPrecioArticuloDTO[]>;
     crearFactura(factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;
     actualizarFactura(id: number, factura: FacturaRequestDTO): Promise<FacturaReporteDTO>;

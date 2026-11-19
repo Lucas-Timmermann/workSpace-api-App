@@ -50,8 +50,19 @@ const retryCatalogsFormButton = requiredElement<HTMLButtonElement>("retry-catalo
 const articleExplorer = requiredElement<HTMLDialogElement>("article-explorer");
 const articleRows = requiredElement<HTMLTableSectionElement>("article-rows");
 const articleExplorerMessage = requiredElement<HTMLParagraphElement>("article-explorer-message");
+const articleFilterName = requiredElement<HTMLInputElement>("article-filter-name");
+const articleFilterRubro = requiredElement<HTMLSelectElement>("article-filter-rubro");
 const confirmArticleSelection = requiredElement<HTMLButtonElement>("confirm-article-selection");
 const retryArticlesButton = requiredElement<HTMLButtonElement>("retry-articles");
+const clientExplorer = requiredElement<HTMLDialogElement>("client-explorer");
+const clientRows = requiredElement<HTMLTableSectionElement>("client-rows");
+const clientExplorerMessage = requiredElement<HTMLParagraphElement>("client-explorer-message");
+const clientFilter = requiredElement<HTMLInputElement>("client-filter");
+const chooseClientButton = requiredElement<HTMLButtonElement>("choose-client");
+const confirmClientSelection = requiredElement<HTMLButtonElement>("confirm-client-selection");
+const tracePanel = requiredElement<HTMLElement>("trace-panel");
+const traceHeading = requiredElement<HTMLDivElement>("trace-heading");
+const traceTitle = requiredElement<HTMLHeadingElement>("trace-title");
 const arcaExplorer = requiredElement<HTMLDialogElement>("arca-explorer");
 const arcaRows = requiredElement<HTMLTableSectionElement>("arca-rows");
 const arcaMessage = requiredElement<HTMLParagraphElement>("arca-explorer-message");
@@ -75,6 +86,7 @@ let clientes: CatalogoDenominacionDTO[] = [];
 let condicionesIva: CatalogoDenominacionDTO[] = [];
 let tiposMoneda: CatalogoDenominacionDTO[] = [];
 let listasPrecio: CatalogoDenominacionDTO[] = [];
+let rubros: CatalogoDenominacionDTO[] = [];
 let articulosLista: ListaPrecioArticuloDTO[] = [];
 let articulosSeleccionados = new Map<number, string>();
 let articulosLoading = false;
@@ -93,6 +105,7 @@ let arcaSending = false;
 let arcaLoadVersion = 0;
 let pdfPrinting = false;
 let latestTraceItems: FacturaHttpTrace[] = [];
+let selectedClientId: number | null = null;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -290,6 +303,17 @@ function renderInvoiceList(): void {
       deleteButton.dataset.index = String(index);
       actionGroup.append(deleteButton);
     }
+    if (invoice.estado === "PENDIENTE") {
+      const arcaButton = document.createElement("button");
+      arcaButton.type = "button";
+      arcaButton.className = "button button-secondary button-small icon-button";
+      arcaButton.dataset.action = "arca";
+      arcaButton.dataset.index = String(index);
+      arcaButton.title = `Enviar factura ${invoice.numeroFactura} a ARCA`;
+      arcaButton.setAttribute("aria-label", `Enviar factura ${invoice.numeroFactura} a ARCA`);
+      arcaButton.textContent = "A";
+      actionGroup.append(arcaButton);
+    }
     actions.append(actionGroup);
     row.append(actions);
     rows.append(row);
@@ -425,6 +449,7 @@ async function loadCatalogs(): Promise<void> {
   renderSelectOptions("condicionIvaId", condicionesIva, (item) => item.denominacion);
   renderSelectOptions("tipoMonedaId", tiposMoneda, (item) => item.denominacion);
   renderSelectOptions("listaPrecioId", listasPrecio, (item) => item.denominacion);
+  refreshClientButton();
   const failed = results.some((result) => result.status === "rejected");
   const noData = [puntosVenta, clientes, condicionesIva, tiposMoneda, listasPrecio].some((items) => items.length === 0);
   catalogMessage.textContent = failed
@@ -437,6 +462,39 @@ async function loadCatalogs(): Promise<void> {
     requiredElement<HTMLButtonElement>("retry-catalogs").hidden = false;
     retryCatalogsFormButton.hidden = false;
   }
+}
+
+function normalizeText(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function filteredArticles(): ListaPrecioArticuloDTO[] {
+  const name = normalizeText(articleFilterName.value);
+  const rubro = articleFilterRubro.value;
+  return articulosLista.filter((article) =>
+    (!name || normalizeText(article.denominacion).includes(name))
+    && (!rubro || article.rubro === rubro));
+}
+
+function populateRubroFilter(): void {
+  const selected = articleFilterRubro.value;
+  const nombres = new Set<string>();
+  for (const rubro of rubros) nombres.add(rubro.denominacion);
+  for (const article of articulosLista) if (article.rubro) nombres.add(article.rubro);
+  articleFilterRubro.replaceChildren(new Option("Todos los rubros", ""));
+  for (const nombre of [...nombres].sort((a, b) => a.localeCompare(b, "es"))) {
+    articleFilterRubro.add(new Option(nombre, nombre));
+  }
+  articleFilterRubro.value = nombres.has(selected) ? selected : "";
+}
+
+async function loadRubros(): Promise<void> {
+  try {
+    rubros = await service.obtenerRubros();
+  } catch {
+    rubros = [];
+  }
+  populateRubroFilter();
 }
 
 function renderArticleRows(): void {
@@ -452,8 +510,11 @@ function renderArticleRows(): void {
     confirmArticleSelection.disabled = true;
     return;
   }
-  articleExplorerMessage.textContent = "Selecciona uno o más artículos e indica sus cantidades.";
-  for (const article of articulosLista) {
+  const visibles = filteredArticles();
+  articleExplorerMessage.textContent = visibles.length === 0
+    ? "No hay artículos que coincidan con los filtros."
+    : "Selecciona uno o más artículos e indica sus cantidades.";
+  for (const article of visibles) {
     const row = document.createElement("tr");
     const selectionCell = document.createElement("td");
     const checkbox = document.createElement("input");
@@ -516,6 +577,7 @@ async function loadArticlesForSelectedList(): Promise<void> {
         || String(listaPrecioId) !== select("listaPrecioId").value) return;
     articulosLista = result;
     articulosLoading = false;
+    populateRubroFilter();
     renderArticleRows();
   } catch (error) {
     if (requestVersion !== articleRequestVersion
@@ -535,6 +597,8 @@ function openArticleExplorer(): void {
     return;
   }
   articulosSeleccionados.clear();
+  articleFilterName.value = "";
+  articleFilterRubro.value = "";
   articleExplorer.showModal();
   requiredElement<HTMLButtonElement>("close-article-explorer").focus();
   void loadArticlesForSelectedList();
@@ -669,6 +733,8 @@ function setSelectValue(name: string, value: number | null): void {
 
 function showForm(invoice?: FacturaReporteDTO): void {
   invoiceForm.reset();
+  select("clienteId").classList.remove("invalid-field");
+  chooseClientButton.classList.remove("invalid-field");
   selectedListaPrecioId = "";
   editingInvoiceId = invoice?.id ?? null;
   editingImporteCobrado = invoice?.importeCobrado ?? 0;
@@ -706,6 +772,7 @@ function showForm(invoice?: FacturaReporteDTO): void {
 
 
   }
+  refreshClientButton();
   renderDetailRows();
   listView.hidden = true;
   formView.hidden = false;
@@ -747,6 +814,7 @@ function collectRequest(): FacturaRequestDTO | null {
   ] as const) {
     if (value === null) select(name).classList.add("invalid-field");
   }
+  chooseClientButton.classList.toggle("invalid-field", clienteId === null);
   if (clienteId === null || condicionIvaId === null || puntoVentaId === null
       || tipoMonedaId === null || listaPrecioId === null) {
     invalid = true;
@@ -881,6 +949,121 @@ async function annulInvoice(invoice: FacturaReporteDTO, button: HTMLButtonElemen
   } finally {
     anulando = false;
   }
+}
+
+async function sendInvoiceToArca(invoice: FacturaReporteDTO, button: HTMLButtonElement): Promise<void> {
+  if (arcaSending) return;
+  if (invoice.estado !== "PENDIENTE") {
+    setActionNotice("Solo las facturas pendientes se pueden enviar a ARCA.", "warning");
+    return;
+  }
+  if (!window.confirm(`¿Enviar la factura N° ${invoice.numeroFactura} a ARCA?`)) return;
+
+  arcaSending = true;
+  button.disabled = true;
+  button.textContent = "…";
+  setActionNotice(`Enviando la factura N° ${invoice.numeroFactura} a ARCA…`, "info");
+  try {
+    const result = await service.enviarFacturasAArca([invoice.id]);
+    const item = result.detalle[0];
+    if (!item) {
+      setActionNotice(`Envío de la factura N° ${invoice.numeroFactura} procesado sin detalle.`, "warning");
+    } else {
+      const cae = item.cae ? ` CAE: ${item.cae}.` : "";
+      const mensaje = item.mensaje ? ` ${item.mensaje}` : "";
+      const kind = item.resultado === "APROBADA" ? "success"
+        : item.resultado === "RECHAZADA" ? "error"
+          : item.resultado === "INCIERTO" ? "warning" : "info";
+      setActionNotice(`Factura N° ${invoice.numeroFactura}: ${item.resultado}.${cae}${mensaje}`, kind);
+    }
+    await loadInvoices(currentFilters, facturaPagina.pagina);
+  } catch (error) {
+    setActionNotice(`No se pudo enviar la factura N° ${invoice.numeroFactura} a ARCA: ${errorMessage(error)}`, "error");
+    button.disabled = false;
+    button.textContent = "A";
+  } finally {
+    arcaSending = false;
+  }
+}
+
+function selectedClientName(): string {
+  const id = select("clienteId").value;
+  return clientes.find((cliente) => String(cliente.id) === id)?.denominacion ?? "";
+}
+
+function refreshClientButton(): void {
+  const name = selectedClientName();
+  chooseClientButton.textContent = name || "Seleccionar cliente";
+  chooseClientButton.classList.toggle("selected", Boolean(name));
+  chooseClientButton.disabled = catalogosLoading || clientes.length === 0;
+  chooseClientButton.classList.toggle("invalid-field", select("clienteId").classList.contains("invalid-field"));
+}
+
+function renderClientRows(): void {
+  clientRows.replaceChildren();
+  const filter = normalizeText(clientFilter.value);
+  const visibles = clientes.filter((cliente) => !filter || normalizeText(cliente.denominacion).includes(filter));
+  if (visibles.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 2;
+    cell.className = "table-message";
+    cell.textContent = "No hay clientes que coincidan con el filtro.";
+    row.append(cell);
+    clientRows.append(row);
+  }
+  for (const cliente of visibles) {
+    const row = document.createElement("tr");
+    const selectionCell = document.createElement("td");
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "client-choice";
+    radio.value = String(cliente.id);
+    radio.checked = selectedClientId === cliente.id;
+    radio.setAttribute("aria-label", `Seleccionar ${cliente.denominacion}`);
+    radio.addEventListener("change", () => {
+      selectedClientId = cliente.id;
+      confirmClientSelection.disabled = false;
+    });
+    selectionCell.append(radio);
+    row.append(selectionCell);
+    appendCell(row, cliente.denominacion);
+    clientRows.append(row);
+  }
+  confirmClientSelection.disabled = selectedClientId === null;
+}
+
+function openClientExplorer(): void {
+  if (clientes.length === 0) {
+    setActionNotice("No se pudieron cargar los clientes. Reintentá la carga de catálogos.", "warning");
+    return;
+  }
+  const current = Number(select("clienteId").value);
+  selectedClientId = Number.isSafeInteger(current) && current > 0 ? current : null;
+  clientFilter.value = "";
+  clientExplorerMessage.textContent = "Elige un cliente de la lista.";
+  renderClientRows();
+  clientExplorer.showModal();
+  clientFilter.focus();
+}
+
+function applyClientSelection(): void {
+  if (selectedClientId === null) return;
+  select("clienteId").value = String(selectedClientId);
+  select("clienteId").classList.remove("invalid-field");
+  refreshClientButton();
+  formDirty = true;
+  hideFormMessage();
+  clientExplorer.close();
+}
+
+function setTraceCollapsed(collapsed: boolean): void {
+  tracePanel.classList.toggle("collapsed", collapsed);
+  traceTitle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+function toggleTrace(): void {
+  setTraceCollapsed(!tracePanel.classList.contains("collapsed"));
 }
 
 function renderPendingRows(): void {
@@ -1164,6 +1347,23 @@ requiredElement<HTMLButtonElement>("clear-traces").addEventListener("click", () 
   latestTraceItems = [];
   renderTraces();
 });
+traceHeading.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target instanceof Element && target.closest("#clear-traces")) return;
+  toggleTrace();
+});
+traceTitle.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  toggleTrace();
+});
+articleFilterName.addEventListener("input", renderArticleRows);
+articleFilterRubro.addEventListener("change", renderArticleRows);
+chooseClientButton.addEventListener("click", openClientExplorer);
+requiredElement<HTMLButtonElement>("close-client-explorer").addEventListener("click", () => clientExplorer.close());
+requiredElement<HTMLButtonElement>("cancel-client-selection").addEventListener("click", () => clientExplorer.close());
+confirmClientSelection.addEventListener("click", applyClientSelection);
+clientFilter.addEventListener("input", renderClientRows);
 retryButton.addEventListener("click", () => void loadInvoices(currentFilters));
 invoiceForm.addEventListener("submit", (event) => void saveInvoice(event as SubmitEvent));
 invoiceForm.addEventListener("input", (event) => {
@@ -1216,10 +1416,15 @@ rows.addEventListener("click", (event) => {
   }
   if (button.dataset.action === "delete") {
     void annulInvoice(invoice, button);
+    return;
+  }
+  if (button.dataset.action === "arca") {
+    void sendInvoiceToArca(invoice, button);
   }
 });
 
 renderTraces();
 apiNotice.hidden = true;
 void loadCatalogs();
+void loadRubros();
 void loadInvoices({});

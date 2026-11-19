@@ -2,7 +2,7 @@ package com.example.api_tp.service.arca;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
@@ -46,7 +46,7 @@ public class ArcaFacturaElectronicaService {
         this.wsfeClient = wsfeClient;
     }
 
-   
+
     public WsaaTicket obtenerOReutilizarTicketAcceso() {
         return wsaaClient.obtenerTicketAcceso();
     }
@@ -280,7 +280,7 @@ public class ArcaFacturaElectronicaService {
 
     private static String formatearFechaArca(Date fecha) {
         if (fecha == null) return null;
-        return FECHA_ARCA.format(fecha.toInstant().atZone(ZoneId.systemDefault()).toLocalDate());
+        return FECHA_ARCA.format(fecha.toInstant().atZone(ZoneOffset.UTC).toLocalDate());
     }
 
     private static BigDecimal redondear(BigDecimal v) {

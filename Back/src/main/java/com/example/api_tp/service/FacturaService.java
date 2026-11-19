@@ -81,6 +81,7 @@ public class FacturaService {
     private static final BigDecimal CIEN = BigDecimal.valueOf(100);
     private static final int CONCEPTO_PRODUCTOS = 1;
     private static final int CONDICION_IVA_RESPONSABLE_INSCRIPTO = 1;
+    private static final int CONDICION_IVA_MONOTRIBUTO = 6;
     private static final int DOC_TIPO_CUIT = 80;
     private static final int DOC_TIPO_DNI = 96;
     private static final int TIPO_COMPROBANTE_FACTURA_A = 1;
@@ -319,7 +320,7 @@ public class FacturaService {
         Date finExclusivo = fechaHasta == null ? null
                 : Date.from(fechaHasta.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC));
         Pageable pageable = PageRequest.of(pagina, TAMANO_PAGINA_FACTURAS,
-                Sort.by(FacturaVenta::getNumero).ascending().and(Sort.by(FacturaVenta::getId).ascending()));
+                Sort.by(FacturaVenta::getNumero).descending().and(Sort.by(FacturaVenta::getId).descending()));
         Page<FacturaVenta> resultado = facturaRepository.filtrarPorEstados(
                 estados, numero, normalizarFiltro(cliente), normalizarFiltro(condicionIva), inicio, finExclusivo, pageable);
         List<Long> ids = resultado.getContent().stream().map(FacturaVenta::getId).toList();
@@ -758,7 +759,7 @@ public class FacturaService {
                     + " (código AFIP 1); revisar app.arca.condicion-iva-emisor");
         }
         int condicionReceptor = codigoAfipCondicionIva(factura.getCondicionIva());
-        return condicionReceptor == CONDICION_IVA_RESPONSABLE_INSCRIPTO
+        return (condicionReceptor == CONDICION_IVA_RESPONSABLE_INSCRIPTO) || (condicionReceptor == CONDICION_IVA_MONOTRIBUTO)
                 ? TIPO_COMPROBANTE_FACTURA_A
                 : TIPO_COMPROBANTE_FACTURA_B;
     }

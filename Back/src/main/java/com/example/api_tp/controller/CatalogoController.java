@@ -47,6 +47,11 @@ public class CatalogoController {
         return ResponseEntity.ok(catalogoService.obtenerListasPrecio());
     }
 
+    @GetMapping("/rubros")
+    public ResponseEntity<List<CatalogoDenominacionDTO>> obtenerRubros() {
+        return ResponseEntity.ok(catalogoService.obtenerRubros());
+    }
+
     @GetMapping("/listas-precio/{listaPrecioId}/articulos")
     public ResponseEntity<List<ListaPrecioArticuloDTO>> obtenerArticulosDeLista(
             @PathVariable Long listaPrecioId) {

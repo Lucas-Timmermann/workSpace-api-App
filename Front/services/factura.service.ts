@@ -73,6 +73,10 @@ export class FacturaService {
     return this.obtenerLista<CatalogoDenominacionDTO>(`${this.apiRoot()}/listas-precio`, "listas de precio");
   }
 
+  async obtenerRubros(): Promise<CatalogoDenominacionDTO[]> {
+    return this.obtenerLista<CatalogoDenominacionDTO>(`${this.apiRoot()}/rubros`, "rubros");
+  }
+
   async obtenerArticulosDeLista(listaPrecioId: number): Promise<ListaPrecioArticuloDTO[]> {
     if (!Number.isSafeInteger(listaPrecioId) || listaPrecioId <= 0) {
       throw new FacturaServiceError("Selecciona una lista de precio válida.");

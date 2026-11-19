@@ -117,6 +117,10 @@ table { width: 100%; border-collapse: collapse; }
 .article-table td:first-child { width: 90px; text-align: center; }
 .article-quantity { max-width: 115px; }
 .article-dialog-actions { justify-content: flex-end; margin-top: 16px; }
+.explorer-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.explorer-filters .field { flex: 1 1 220px; }
+.client-picker { width: 100%; justify-content: flex-start; font-weight: 400; }
+.client-picker.selected { color: #1f2937; font-weight: 600; }
 .explorer-dialog { width: min(720px, calc(100% - 28px)); max-width: 720px; }
 .pdf-options { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
 .pdf-option { display: flex; align-items: center; gap: 8px; font-size: .88rem; font-weight: 600; }
@@ -132,8 +136,12 @@ table { width: 100%; border-collapse: collapse; }
 .send-result-muted { color: var(--muted); }
 
 .trace-panel { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; max-height: 190px; border-top: 1px solid #d9dee6; background: #fff; box-shadow: 0 -5px 18px #26364a0b; }
-.trace-heading { display: flex; min-height: 45px; align-items: center; justify-content: space-between; padding: 7px 18px; border-bottom: 1px solid #e8ebef; }
+.trace-panel.collapsed { max-height: 46px; overflow: hidden; }
+.trace-panel.collapsed .trace-list { display: none; }
+.trace-heading { display: flex; min-height: 45px; align-items: center; justify-content: space-between; padding: 7px 18px; border-bottom: 1px solid #e8ebef; cursor: pointer; }
 .trace-heading h2 { margin: 0; font-size: .9rem; }
+.trace-heading h2::before { content: "▾"; display: inline-block; width: 1em; }
+.trace-panel.collapsed .trace-heading h2::before { content: "▸"; }
 .trace-list { max-height: 140px; overflow: auto; padding: 7px 18px 10px; }
 .trace-empty { margin: 4px 0; color: var(--muted); font-size: .8rem; }
 .trace-entry { display: grid; grid-template-columns: 78px minmax(150px, 1fr) 75px 70px minmax(100px, 1fr); gap: 9px; padding: 5px 2px; border-bottom: 1px solid #f0f2f4; font-size: .76rem; }

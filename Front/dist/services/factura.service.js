@@ -40,6 +40,9 @@ export class FacturaService {
     async obtenerListasPrecio() {
         return this.obtenerLista(`${this.apiRoot()}/listas-precio`, "listas de precio");
     }
+    async obtenerRubros() {
+        return this.obtenerLista(`${this.apiRoot()}/rubros`, "rubros");
+    }
     async obtenerArticulosDeLista(listaPrecioId) {
         if (!Number.isSafeInteger(listaPrecioId) || listaPrecioId <= 0) {
             throw new FacturaServiceError("Selecciona una lista de precio válida.");

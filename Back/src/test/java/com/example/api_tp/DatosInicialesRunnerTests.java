@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -13,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.api_tp.config.DatosInicialesRunner;
+import com.example.api_tp.model.FacturaVenta;
 import com.example.api_tp.model.ListaPrecio;
 import com.example.api_tp.model.ListaPrecioArticulo;
 import com.example.api_tp.model.PuntoVenta;
@@ -20,6 +23,7 @@ import com.example.api_tp.model.TipoMoneda;
 import com.example.api_tp.repository.ArticuloRepository;
 import com.example.api_tp.repository.ClienteRepository;
 import com.example.api_tp.repository.CondicionIvaRepository;
+import com.example.api_tp.repository.FacturaVentaRepository;
 import com.example.api_tp.repository.ListaPrecioArticuloRepository;
 import com.example.api_tp.repository.ListaPrecioRepository;
 import com.example.api_tp.repository.PuntoVentaRepository;
@@ -54,6 +58,8 @@ class DatosInicialesRunnerTests {
     private ListaPrecioArticuloRepository listaPrecioArticuloRepository;
     @Autowired
     private PuntoVentaRepository puntoVentaRepository;
+    @Autowired
+    private FacturaVentaRepository facturaVentaRepository;
 
     @Test
     void precargaDatosInicialesYNoDuplicaAlReejecutar() {
@@ -106,5 +112,12 @@ class DatosInicialesRunnerTests {
                 .collect(Collectors.toSet()));
         assertTrue(puntosVenta.stream().allMatch(punto -> "CAE".equals(punto.getTipoEmision())));
         assertTrue(puntosVenta.stream().allMatch(punto -> punto.getDomicilioComercial() != null));
+
+        List<FacturaVenta> facturas = facturaVentaRepository.findAll();
+        assertEquals(30, facturas.size());
+        LocalDate hoy = LocalDate.now();
+        assertTrue(facturas.stream().allMatch(factura -> factura.getFechaEmision() != null
+                && factura.getFechaEmision().toInstant().atZone(ZoneId.systemDefault())
+                        .toLocalDate().equals(hoy)));
     }
 }

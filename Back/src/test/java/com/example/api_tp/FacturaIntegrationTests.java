@@ -418,6 +418,27 @@ class FacturaIntegrationTests {
         }
 
         @Test
+        void ordenaFacturasDeMasRecienteAMasAntiguaYConservaElOrdenConFiltros() throws Exception {
+        Fixture fixture = crearFixture();
+        String detalle = lineJson(null, fixture, "1", "100", "0", "21");
+        long primera = publicarFactura(600001L, fixture, detalle);
+        long segunda = publicarFactura(600002L, fixture, detalle);
+
+        mockMvc.perform(get("/api/facturas"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contenido[0].numeroFactura").value(segunda))
+            .andExpect(jsonPath("$.contenido[1].numeroFactura").value(primera));
+
+        mockMvc.perform(get("/api/facturas").param("clienteDenominacion", "Cliente de prueba"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contenido[0].numeroFactura").value(segunda));
+
+        mockMvc.perform(get("/api/facturas").param("numeroFactura", Long.toString(primera)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contenido[0].numeroFactura").value(primera));
+        }
+
+        @Test
         void exponeCatalogosConCamposMinimosYArticulosFiltradosPorLista() throws Exception {
         Fixture fixture = crearFixture();
 
@@ -438,6 +459,9 @@ class FacturaIntegrationTests {
         mockMvc.perform(get("/api/listas-precio"))
             .andExpect(status().isOk())
             .andExpect(content().string(containsString("\"denominacion\":\"Lista test\"")));
+        mockMvc.perform(get("/api/rubros"))
+            .andExpect(status().isOk())
+            .andExpect(content().string(containsString("\"denominacion\":\"Pruebas\"")));
 
         Long listaPrecioId = transactions.execute(status -> entityManager.find(
             ListaPrecioArticulo.class, fixture.listaPrecioArticuloId())
